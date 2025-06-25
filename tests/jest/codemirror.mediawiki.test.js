@@ -10,32 +10,37 @@ const testCases = [
 	{
 		title: 'p tags, extra closing tag',
 		input: 'this is <p><div>content</p></p>',
-		output: '<div class="cm-line">this is <span class="cm-mw-htmltag-bracket">&lt;</span><span class="cm-mw-htmltag-name">p</span><span class="cm-mw-htmltag-bracket">&gt;</span><span class="cm-mw-htmltag-bracket">&lt;</span><span class="cm-mw-htmltag-name">div</span><span class="cm-mw-htmltag-bracket">&gt;</span>content<span class="cm-mw-error">&lt;/p&gt;</span><span class="cm-mw-htmltag-bracket">&lt;/</span><span class="cm-mw-htmltag-name">p</span><span class="cm-mw-htmltag-bracket">&gt;</span> </div>'
+		output: '<div class="cm-line">this is <span class="cm-mw-htmltag-bracket">&lt;</span><span class="cm-mw-htmltag-name">p</span><span class="cm-mw-htmltag-bracket">&gt;&lt;</span><span class="cm-mw-htmltag-name">div</span><span class="cm-mw-htmltag-bracket">&gt;</span>content<span class="cm-mw-error">&lt;/p&gt;</span><span class="cm-mw-htmltag-bracket">&lt;/</span><span class="cm-mw-htmltag-name">p</span><span class="cm-mw-htmltag-bracket">&gt;</span> </div>'
 	},
 	{
 		title: 'HTML tag attributes',
-		input: '<span title="a<b"><b title="a>b"></b></span>',
-		output: '<div class="cm-line"><span class="cm-mw-htmltag-bracket">&lt;</span><span class="cm-mw-htmltag-name">span </span><span class="cm-mw-htmltag-attribute">title="a</span><span class="cm-mw-htmltag-attribute">&lt;b"</span><span class="cm-mw-htmltag-bracket">&gt;</span><span class="cm-mw-htmltag-bracket">&lt;</span><span class="cm-mw-htmltag-name">b </span><span class="cm-mw-htmltag-attribute">title="a</span><span class="cm-mw-htmltag-bracket">&gt;</span>b"&gt;<span class="cm-mw-htmltag-bracket">&lt;/</span><span class="cm-mw-htmltag-name">b</span><span class="cm-mw-htmltag-bracket">&gt;</span><span class="cm-mw-htmltag-bracket">&lt;/</span><span class="cm-mw-htmltag-name">span</span><span class="cm-mw-htmltag-bracket">&gt;</span> </div>'
+		input: '<span title="a<b"><b title="a>b"></b></span><p title=<nowiki>{{a}}</nowiki>></p><s title=<b>></s>',
+		output: '<div class="cm-line"><span class="cm-mw-htmltag-bracket">&lt;</span><span class="cm-mw-htmltag-name">span </span><span class="cm-mw-htmltag-attribute">title=</span><span class="cm-mw-htmltag-attribute-value">"a</span>&lt;b"&gt;<span class="cm-mw-htmltag-bracket">&lt;</span><span class="cm-mw-htmltag-name">b </span><span class="cm-mw-htmltag-attribute">title=</span><span class="cm-mw-htmltag-attribute-value">"a</span><span class="cm-mw-htmltag-bracket">&gt;</span>b"&gt;<span class="cm-mw-htmltag-bracket">&lt;/</span><span class="cm-mw-htmltag-name">b</span><span class="cm-mw-htmltag-bracket">&gt;</span><span class="cm-mw-error">&lt;/span&gt;</span><span class="cm-mw-htmltag-bracket">&lt;</span><span class="cm-mw-htmltag-name">p </span><span class="cm-mw-htmltag-attribute">title=</span><span class="cm-mw-exttag-bracket cm-mw-ext-nowiki">&lt;</span><span class="cm-mw-exttag-name cm-mw-ext-nowiki">nowiki</span><span class="cm-mw-exttag-bracket cm-mw-ext-nowiki">&gt;</span><span class="cm-mw-tag-nowiki">{{a}}</span><span class="cm-mw-exttag-bracket cm-mw-ext-nowiki">&lt;/</span><span class="cm-mw-exttag-name cm-mw-ext-nowiki">nowiki</span><span class="cm-mw-exttag-bracket cm-mw-ext-nowiki">&gt;</span><span class="cm-mw-htmltag-bracket">&gt;&lt;/</span><span class="cm-mw-htmltag-name">p</span><span class="cm-mw-htmltag-bracket">&gt;&lt;</span><span class="cm-mw-htmltag-name">s </span><span class="cm-mw-htmltag-attribute">title=</span><span class="cm-mw-htmltag-bracket">&lt;</span><span class="cm-mw-htmltag-name">b</span><span class="cm-mw-htmltag-bracket">&gt;</span>&gt;<span class="cm-mw-error">&lt;/s&gt;</span> </div>'
 	},
 	{
 		title: 'ref tag attributes',
 		input: '<ref name="a<b"/>',
-		output: '<div class="cm-line"><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&lt;</span><span class="cm-mw-exttag-name cm-mw-ext-ref">ref </span><span class="cm-mw-exttag-attribute cm-mw-ext-ref">name="a&lt;b"</span><span class="cm-mw-exttag-bracket cm-mw-ext-ref">/&gt;</span> </div>'
+		output: '<div class="cm-line"><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&lt;</span><span class="cm-mw-exttag-name cm-mw-ext-ref">ref </span><span class="cm-mw-exttag-attribute cm-mw-ext-ref">name=</span><span class="cm-mw-exttag-attribute-value">"a&lt;b"</span><span class="cm-mw-exttag-bracket cm-mw-ext-ref">/&gt;</span> </div>'
+	},
+	{
+		title: 'templatestyles tag attributes',
+		input: '<templatestyles src="a/style.css"/>',
+		output: '<div class="cm-line"><span class="cm-mw-exttag-bracket cm-mw-ext-templatestyles">&lt;</span><span class="cm-mw-exttag-name cm-mw-ext-templatestyles">templatestyles </span><span class="cm-mw-exttag-attribute cm-mw-ext-templatestyles">src=</span><span class="cm-mw-exttag-attribute-value">"</span><span class="cm-mw-exttag-attribute-value cm-mw-pagename cm-mw-ext-templatestyles">a/style.css</span><span class="cm-mw-exttag-attribute-value">"</span><span class="cm-mw-exttag-bracket cm-mw-ext-templatestyles">/&gt;</span> </div>'
 	},
 	{
 		title: 'indented table with caption and inline headings',
-		input: ':{|\n|}\n: {|\n|}\n :: {| class="wikitable"\n |+ Caption\n |-\n ! Uno !! Dos\n |-\n | Foo || Bar\n |}',
-		output: '<div class="cm-line"><span class="cm-mw-indenting">:</span><span class="cm-mw-table-bracket">{|</span></div><div class="cm-line"><span class="cm-mw-table-bracket">|}</span></div><div class="cm-line"><span class="cm-mw-indenting">: </span><span class="cm-mw-table-bracket">{|</span></div><div class="cm-line"><span class="cm-mw-table-bracket">|}</span></div><div class="cm-line"><span class="cm-mw-indenting"> :: </span><span class="cm-mw-table-bracket">{| </span><span class="cm-mw-table-definition">class</span><span class="cm-mw-table-definition">="wikitable"</span></div><div class="cm-line"><span class="cm-mw-table-delimiter"> |+ </span><span class="cm-mw-table-caption">Caption</span></div><div class="cm-line"><span class="cm-mw-table-delimiter"> |-</span></div><div class="cm-line"><span class="cm-mw-table-delimiter"> ! </span><span class="cm-mw-strong">Uno </span><span class="cm-mw-table-delimiter">!!</span><span class="cm-mw-strong"> Dos</span></div><div class="cm-line"><span class="cm-mw-table-delimiter"> |-</span></div><div class="cm-line"><span class="cm-mw-table-delimiter"> | </span>Foo <span class="cm-mw-table-delimiter">||</span> Bar</div><div class="cm-line"><span class="cm-mw-table-bracket"> |}</span> </div>'
+		input: ':{|\n|}\n: {|\n|}\n :: {| class="wikitable"\n |+ Caption\n |- title = &{< \n ! Uno !! Dos\n |-\n | Foo || Bar\n |}',
+		output: '<div class="cm-line"><span class="cm-mw-indenting">:</span><span class="cm-mw-table-bracket">{|</span></div><div class="cm-line"><span class="cm-mw-table-bracket">|}</span></div><div class="cm-line"><span class="cm-mw-indenting">: </span><span class="cm-mw-table-bracket">{|</span></div><div class="cm-line"><span class="cm-mw-table-bracket">|}</span></div><div class="cm-line"><span class="cm-mw-indenting"> :: </span><span class="cm-mw-table-bracket">{| </span><span class="cm-mw-table-definition">class=</span><span class="cm-mw-table-definition-value">"wikitable"</span></div><div class="cm-line"><span class="cm-mw-table-delimiter"> |+ </span><span class="cm-mw-table-caption">Caption</span></div><div class="cm-line"><span class="cm-mw-table-delimiter"> |- </span><span class="cm-mw-table-definition">title = </span><span class="cm-mw-table-definition-value">&amp;{&lt;</span><span class="cm-mw-table-definition"> </span></div><div class="cm-line"><span class="cm-mw-table-delimiter"> ! </span><span class="cm-mw-strong">Uno </span><span class="cm-mw-table-delimiter">!!</span><span class="cm-mw-strong"> Dos</span></div><div class="cm-line"><span class="cm-mw-table-delimiter"> |-</span></div><div class="cm-line"><span class="cm-mw-table-delimiter"> | </span>Foo <span class="cm-mw-table-delimiter">||</span> Bar</div><div class="cm-line"><span class="cm-mw-table-bracket"> |}</span> </div>'
 	},
 	{
 		title: 'apostrophe before italic',
-		input: 'plain l\'\'\'italic\'\'plain',
-		output: '<div class="cm-line">plain l\'<span class="cm-mw-apostrophes-italic">\'\'</span><span class="cm-mw-em">italic</span><span class="cm-mw-apostrophes-italic">\'\'</span>plain </div>'
+		input: 'plain l\'\'\'italic\'\'plain\n \'\'\'x\'\'\n\'\'[[foo]]\'\'\'',
+		output: '<div class="cm-line">plain l\'<span class="cm-mw-apostrophes">\'\'</span><span class="cm-mw-em">italic</span><span class="cm-mw-apostrophes">\'\'</span>plain</div><div class="cm-line"><span class="cm-mw-skipformatting"> </span>\'<span class="cm-mw-apostrophes">\'\'</span><span class="cm-mw-em">x</span><span class="cm-mw-apostrophes">\'\'</span></div><div class="cm-line"><span class="cm-mw-apostrophes">\'\'</span><span class="cm-mw-link-ground cm-mw-link-bracket">[[</span><span class="cm-mw-link-ground cm-mw-link-pagename cm-mw-pagename cm-mw-em">foo</span><span class="cm-mw-link-ground cm-mw-link-bracket">]]</span><span class="cm-mw-em">\'</span><span class="cm-mw-apostrophes">\'\'</span> </div>'
 	},
 	{
 		title: 'free external links',
 		input: '//archive.org [ftp://foo.bar FOO] https://wikimedia.org/~\nx',
-		output: '<div class="cm-line">//archive.org <span class="cm-mw-link-ground cm-mw-extlink-bracket">[</span><span class="cm-mw-link-ground cm-mw-extlink-protocol">ftp://</span><span class="cm-mw-link-ground cm-mw-extlink">foo.bar</span><span class="cm-mw-link-ground"> </span><span class="cm-mw-link-ground cm-mw-extlink-text">FOO</span><span class="cm-mw-link-ground cm-mw-extlink-bracket">]</span> <span class="cm-mw-free-extlink-protocol">https://</span><span class="cm-mw-free-extlink">wikimedia.</span><span class="cm-mw-free-extlink">org/~</span></div><div class="cm-line">x </div>'
+		output: '<div class="cm-line">//archive.org <span class="cm-mw-link-ground cm-mw-extlink-bracket">[</span><span class="cm-mw-link-ground cm-mw-extlink-protocol">ftp://</span><span class="cm-mw-link-ground cm-mw-extlink">foo.bar</span><span class="cm-mw-link-ground"> </span><span class="cm-mw-link-ground cm-mw-extlink-text">FOO</span><span class="cm-mw-link-ground cm-mw-extlink-bracket">]</span> <span class="cm-mw-free-extlink-protocol">https://</span><span class="cm-mw-free-extlink">wikimedia.org/~</span></div><div class="cm-line">x </div>'
 	},
 	{
 		title: 'not free external links',
@@ -55,12 +60,12 @@ const testCases = [
 	{
 		title: 'nowiki',
 		input: '<nowiki>{{foo}}<p> </div> {{{</nowiki>\n<nowiki/><pre class="foo">\n\n {{bar}}</pre>',
-		output: '<div class="cm-line"><span class="cm-mw-exttag-bracket cm-mw-ext-nowiki">&lt;</span><span class="cm-mw-exttag-name cm-mw-ext-nowiki">nowiki</span><span class="cm-mw-exttag-bracket cm-mw-ext-nowiki">&gt;</span><span class="cm-mw-tag-nowiki">{{foo}}&lt;p&gt; &lt;/div&gt; {{{</span><span class="cm-mw-exttag-bracket cm-mw-ext-nowiki">&lt;/</span><span class="cm-mw-exttag-name cm-mw-ext-nowiki">nowiki</span><span class="cm-mw-exttag-bracket cm-mw-ext-nowiki">&gt;</span></div><div class="cm-line"><span class="cm-mw-exttag-bracket cm-mw-ext-nowiki">&lt;</span><span class="cm-mw-exttag-name cm-mw-ext-nowiki">nowiki</span><span class="cm-mw-exttag-bracket cm-mw-ext-nowiki">/&gt;</span><span class="cm-mw-exttag-bracket cm-mw-ext-pre">&lt;</span><span class="cm-mw-exttag-name cm-mw-ext-pre">pre </span><span class="cm-mw-exttag-attribute cm-mw-ext-pre">class="foo"</span><span class="cm-mw-exttag-bracket cm-mw-ext-pre">&gt;</span></div><div class="cm-line"><br></div><div class="cm-line"><span class="cm-mw-tag-pre"> {{bar}}</span><span class="cm-mw-exttag-bracket cm-mw-ext-pre">&lt;/</span><span class="cm-mw-exttag-name cm-mw-ext-pre">pre</span><span class="cm-mw-exttag-bracket cm-mw-ext-pre">&gt;</span> </div>'
+		output: '<div class="cm-line"><span class="cm-mw-exttag-bracket cm-mw-ext-nowiki">&lt;</span><span class="cm-mw-exttag-name cm-mw-ext-nowiki">nowiki</span><span class="cm-mw-exttag-bracket cm-mw-ext-nowiki">&gt;</span><span class="cm-mw-tag-nowiki">{{foo}}&lt;p&gt; &lt;/div&gt; {{{</span><span class="cm-mw-exttag-bracket cm-mw-ext-nowiki">&lt;/</span><span class="cm-mw-exttag-name cm-mw-ext-nowiki">nowiki</span><span class="cm-mw-exttag-bracket cm-mw-ext-nowiki">&gt;</span></div><div class="cm-line"><span class="cm-mw-exttag-bracket cm-mw-ext-nowiki">&lt;</span><span class="cm-mw-exttag-name cm-mw-ext-nowiki">nowiki</span><span class="cm-mw-exttag-bracket cm-mw-ext-nowiki">/&gt;</span><span class="cm-mw-exttag-bracket cm-mw-ext-pre">&lt;</span><span class="cm-mw-exttag-name cm-mw-ext-pre">pre </span><span class="cm-mw-exttag-attribute cm-mw-ext-pre">class=</span><span class="cm-mw-exttag-attribute-value">"foo"</span><span class="cm-mw-exttag-bracket cm-mw-ext-pre">&gt;</span></div><div class="cm-line"><br></div><div class="cm-line"><span class="cm-mw-tag-pre"> {{bar}}</span><span class="cm-mw-exttag-bracket cm-mw-ext-pre">&lt;/</span><span class="cm-mw-exttag-name cm-mw-ext-pre">pre</span><span class="cm-mw-exttag-bracket cm-mw-ext-pre">&gt;</span> </div>'
 	},
 	{
 		title: 'ref tag with cite web, extraneous curly braces',
 		input: '<ref>{{cite web|2=foo}}}}</ref>',
-		output: '<div class="cm-line"><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&lt;</span><span class="cm-mw-exttag-name cm-mw-ext-ref">ref</span><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&gt;</span><span class="cm-mw-tag-ref cm-mw-template-ground cm-mw-template-bracket">{{</span><span class="cm-mw-tag-ref cm-mw-template-ground cm-mw-pagename cm-mw-template-name">cite</span><span class="cm-mw-tag-ref cm-mw-template-ground cm-mw-pagename cm-mw-template-name"> web</span><span class="cm-mw-tag-ref cm-mw-template-ground cm-mw-template-delimiter">|</span><span class="cm-mw-tag-ref cm-mw-template-ground cm-mw-template-argument-name">2=</span><span class="cm-mw-tag-ref cm-mw-template-ground cm-mw-template">foo</span><span class="cm-mw-tag-ref cm-mw-template-ground cm-mw-template-bracket">}}</span><span class="cm-mw-tag-ref">}</span><span class="cm-mw-tag-ref">}</span><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&lt;/</span><span class="cm-mw-exttag-name cm-mw-ext-ref">ref</span><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&gt;</span> </div>'
+		output: '<div class="cm-line"><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&lt;</span><span class="cm-mw-exttag-name cm-mw-ext-ref">ref</span><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&gt;</span><span class="cm-mw-tag-ref cm-mw-template-ground cm-mw-template-bracket">{{</span><span class="cm-mw-tag-ref cm-mw-template-ground cm-mw-pagename cm-mw-template-name">cite web</span><span class="cm-mw-tag-ref cm-mw-template-ground cm-mw-template-delimiter">|</span><span class="cm-mw-tag-ref cm-mw-template-ground cm-mw-template-argument-name">2=</span><span class="cm-mw-tag-ref cm-mw-template-ground cm-mw-template">foo</span><span class="cm-mw-tag-ref cm-mw-template-ground cm-mw-template-bracket">}}</span><span class="cm-mw-tag-ref">}}</span><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&lt;/</span><span class="cm-mw-exttag-name cm-mw-ext-ref">ref</span><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&gt;</span> </div>'
 	},
 	{
 		title: 'template with params and parser function',
@@ -68,9 +73,19 @@ const testCases = [
 		output: '<div class="cm-line"><span class="cm-mw-template-ground cm-mw-template-bracket">{{</span><span class="cm-mw-template-ground cm-mw-pagename cm-mw-template-name">foo</span><span class="cm-mw-template-ground cm-mw-template-delimiter">|</span><span class="cm-mw-template-ground cm-mw-template-argument-name">1=</span><span class="cm-mw-template-ground cm-mw-template">bar</span><span class="cm-mw-template-ground cm-mw-template-delimiter">|</span><span class="cm-mw-template-ground cm-mw-template-argument-name">2=</span><span class="cm-mw-template-ground cm-mw-templatevariable-bracket">{{{</span><span class="cm-mw-template-ground cm-mw-templatevariable-name">param</span><span class="cm-mw-template-ground cm-mw-templatevariable-delimiter">|</span><span class="cm-mw-template-ground cm-mw-templatevariable">blah</span><span class="cm-mw-template-ground cm-mw-templatevariable-bracket">}}}</span><span class="cm-mw-template-ground cm-mw-template-delimiter">|</span><span class="cm-mw-template-ext-ground cm-mw-parserfunction-bracket">{{</span><span class="cm-mw-template-ext-ground cm-mw-parserfunction-name">#if</span><span class="cm-mw-template-ext-ground cm-mw-parserfunction-delimiter">:</span><span class="cm-mw-template-ext-ground cm-mw-templatevariable-bracket">{{{</span><span class="cm-mw-template-ext-ground cm-mw-templatevariable-name">3</span><span class="cm-mw-template-ext-ground cm-mw-templatevariable-delimiter">|</span><span class="cm-mw-template-ext-ground cm-mw-templatevariable-bracket">}}}</span><span class="cm-mw-template-ext-ground cm-mw-parserfunction-delimiter">|</span><span class="cm-mw-template-ext-ground cm-mw-parserfunction">yes</span><span class="cm-mw-template-ext-ground cm-mw-parserfunction-delimiter">|</span><span class="cm-mw-template-ext-ground cm-mw-parserfunction">no</span><span class="cm-mw-template-ext-ground cm-mw-parserfunction-bracket">}}</span><span class="cm-mw-template-ground cm-mw-template-bracket">}}</span> </div>'
 	},
 	{
+		title: 'parser function-like template',
+		input: '{{ns}}{{NS:}}{{!}}{{#if}}{{מיון רגיל}}',
+		output: '<div class="cm-line"><span class="cm-mw-template-ground cm-mw-template-bracket">{{</span><span class="cm-mw-template-ground cm-mw-pagename cm-mw-template-name">ns</span><span class="cm-mw-template-ground cm-mw-template-bracket">}}</span><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">{{</span><span class="cm-mw-ext-ground cm-mw-parserfunction-name">NS</span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">:</span><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">}}{{</span><span class="cm-mw-ext-ground cm-mw-parserfunction-name">!</span><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">}}{{</span><span class="cm-mw-ext-ground cm-mw-parserfunction-name">#if</span><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">}}</span><span class="cm-mw-template-ground cm-mw-template-bracket">{{</span><span class="cm-mw-template-ground cm-mw-pagename cm-mw-template-name">מיון רגיל</span><span class="cm-mw-template-ground cm-mw-template-bracket">}}</span> </div>'
+	},
+	{
+		title: 'T389902: special parser functions',
+		input: '{{#ifexist:foo|yes|no}}\n{{#lst:foo|bar}}\n{{filepath:foo|nowiki}}\n{{int:foo|bar}}\n{{#invoke:foo|bar}}',
+		output: '<div class="cm-line"><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">{{</span><span class="cm-mw-ext-ground cm-mw-parserfunction-name">#ifexist</span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">:</span><span class="cm-mw-ext-ground cm-mw-parserfunction cm-mw-pagename">foo</span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">|</span><span class="cm-mw-ext-ground cm-mw-parserfunction">yes</span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">|</span><span class="cm-mw-ext-ground cm-mw-parserfunction">no</span><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">}}</span></div><div class="cm-line"><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">{{</span><span class="cm-mw-ext-ground cm-mw-parserfunction-name">#lst</span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">:</span><span class="cm-mw-ext-ground cm-mw-parserfunction cm-mw-pagename">foo</span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">|</span><span class="cm-mw-ext-ground cm-mw-parserfunction">bar</span><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">}}</span></div><div class="cm-line"><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">{{</span><span class="cm-mw-ext-ground cm-mw-parserfunction-name">filepath</span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">:</span><span class="cm-mw-ext-ground cm-mw-parserfunction cm-mw-pagename">foo</span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">|</span><span class="cm-mw-ext-ground cm-mw-parserfunction">nowiki</span><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">}}</span></div><div class="cm-line"><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">{{</span><span class="cm-mw-ext-ground cm-mw-parserfunction-name">int</span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">:</span><span class="cm-mw-ext-ground cm-mw-parserfunction cm-mw-pagename">foo</span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">|</span><span class="cm-mw-ext-ground cm-mw-parserfunction">bar</span><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">}}</span></div><div class="cm-line"><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">{{</span><span class="cm-mw-ext-ground cm-mw-parserfunction-name">#invoke</span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">:</span><span class="cm-mw-ext-ground cm-mw-parserfunction cm-mw-pagename">foo</span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">|</span><span class="cm-mw-ext-ground cm-mw-parserfunction">bar</span><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">}}</span> </div>'
+	},
+	{
 		title: 'T277767: newlines and comments in template names',
 		input: '{{#if: | {{some template\n<!-- comment --> }} }}',
-		output: '<div class="cm-line"><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">{{</span><span class="cm-mw-ext-ground cm-mw-parserfunction-name">#if</span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">:</span><span class="cm-mw-ext-ground cm-mw-parserfunction"> </span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">|</span><span class="cm-mw-ext-ground cm-mw-parserfunction"> </span><span class="cm-mw-template-ext-ground cm-mw-template-bracket">{{</span><span class="cm-mw-template-ext-ground cm-mw-pagename cm-mw-template-name">some</span><span class="cm-mw-template-ext-ground cm-mw-pagename cm-mw-template-name"> template</span></div><div class="cm-line"><span class="cm-mw-template-ext-ground cm-mw-comment">&lt;!-- comment --&gt;</span><span class="cm-mw-template-ext-ground cm-mw-template-bracket"> }}</span><span class="cm-mw-ext-ground cm-mw-parserfunction"> </span><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">}}</span> </div>'
+		output: '<div class="cm-line"><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">{{</span><span class="cm-mw-ext-ground cm-mw-parserfunction-name">#if</span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">:</span><span class="cm-mw-ext-ground cm-mw-parserfunction"> </span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">|</span><span class="cm-mw-ext-ground cm-mw-parserfunction"> </span><span class="cm-mw-template-ext-ground cm-mw-template-bracket">{{</span><span class="cm-mw-template-ext-ground cm-mw-pagename cm-mw-template-name">some template</span></div><div class="cm-line"><span class="cm-mw-template-ext-ground cm-mw-comment">&lt;!-- comment --&gt;</span><span class="cm-mw-template-ext-ground cm-mw-template-bracket"> }}</span><span class="cm-mw-ext-ground cm-mw-parserfunction"> </span><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">}}</span> </div>'
 	},
 	{
 		title: 'T108450: template transclusion where the template name is a parameter',
@@ -90,7 +105,7 @@ const testCases = [
 	{
 		title: 'section headings',
 		input: '== My section ==\nFoo bar\n=== Blah ===\nBaz\n= { =\nText',
-		output: '<div class="cm-line"><span class="cm-mw-section-header cm-mw-section-2">==</span><span class="cm-mw-section"> My section </span><span class="cm-mw-section-header">==</span></div><div class="cm-line">Foo bar</div><div class="cm-line"><span class="cm-mw-section-header cm-mw-section-3">===</span><span class="cm-mw-section"> Blah </span><span class="cm-mw-section-header">===</span></div><div class="cm-line">Baz</div><div class="cm-line"><span class="cm-mw-section-header cm-mw-section-1">=</span><span class="cm-mw-section"> </span><span class="cm-mw-section">{</span><span class="cm-mw-section"> </span><span class="cm-mw-section-header">=</span></div><div class="cm-line">Text </div>'
+		output: '<div class="cm-line"><span class="cm-mw-section-header cm-mw-section-2">==</span><span class="cm-mw-section"> My section </span><span class="cm-mw-section-header">==</span></div><div class="cm-line">Foo bar</div><div class="cm-line"><span class="cm-mw-section-header cm-mw-section-3">===</span><span class="cm-mw-section"> Blah </span><span class="cm-mw-section-header">===</span></div><div class="cm-line">Baz</div><div class="cm-line"><span class="cm-mw-section-header cm-mw-section-1">=</span><span class="cm-mw-section"> { </span><span class="cm-mw-section-header">=</span></div><div class="cm-line">Text </div>'
 	},
 	{
 		title: 'section headings with trailing comments',
@@ -105,7 +120,7 @@ const testCases = [
 	{
 		title: 'nested ordered, unordered and definition lists',
 		input: '*#;: item A\n#;:* item B\n;:*# item C\n:*#; item D',
-		output: '<div class="cm-line"><span class="cm-mw-list">*#;:</span><span class="cm-mw-strong"> item</span><span class="cm-mw-strong"> A</span></div><div class="cm-line"><span class="cm-mw-list">#;:*</span><span class="cm-mw-strong"> item</span><span class="cm-mw-strong"> B</span></div><div class="cm-line"><span class="cm-mw-list">;:*#</span><span class="cm-mw-strong"> item</span><span class="cm-mw-strong"> C</span></div><div class="cm-line"><span class="cm-mw-list">:*#;</span><span class="cm-mw-strong"> item</span><span class="cm-mw-strong"> D</span><span class="cm-mw-strong"> </span></div>'
+		output: '<div class="cm-line"><span class="cm-mw-list">*#;:</span><span class="cm-mw-strong"> item A</span></div><div class="cm-line"><span class="cm-mw-list">#;:*</span><span class="cm-mw-strong"> item B</span></div><div class="cm-line"><span class="cm-mw-list">;:*#</span><span class="cm-mw-strong"> item C</span></div><div class="cm-line"><span class="cm-mw-list">:*#;</span><span class="cm-mw-strong"> item D </span></div>'
 	},
 	{
 		title: 'one-line definition list',
@@ -113,9 +128,19 @@ const testCases = [
 		output: '<div class="cm-line"><span class="cm-mw-list">;</span><span class="cm-mw-strong">term</span><span class="cm-mw-indenting">:</span>definition</div><div class="cm-line"><span class="cm-mw-list">;</span><span class="cm-mw-strong">term</span></div><div class="cm-line"><span class="cm-mw-list">:</span>definition </div>'
 	},
 	{
+		title: 'broken link',
+		input: '[[broken link|text [[link]] ]]',
+		output: '<div class="cm-line"><span class="cm-mw-link-ground cm-mw-link-bracket">[[</span><span class="cm-mw-link-ground cm-mw-link-pagename cm-mw-pagename">broken link</span><span class="cm-mw-link-ground cm-mw-link-delimiter">|</span><span class="cm-mw-link-ground cm-mw-link-text">text </span><span class="cm-mw-link-ground cm-mw-link-bracket">[[</span><span class="cm-mw-link-ground cm-mw-link-pagename cm-mw-pagename">link</span><span class="cm-mw-link-ground cm-mw-link-bracket">]]</span> ]] </div>'
+	},
+	{
 		title: 'link with bold text',
 		input: '[[Link title|\'\'\'bold link\'\'\']]',
-		output: '<div class="cm-line"><span class="cm-mw-link-ground cm-mw-link-bracket">[[</span><span class="cm-mw-link-ground cm-mw-link-pagename cm-mw-pagename">Link</span><span class="cm-mw-link-ground cm-mw-link-pagename cm-mw-pagename"> title</span><span class="cm-mw-link-ground cm-mw-link-delimiter">|</span><span class="cm-mw-link-ground cm-mw-link-text cm-mw-apostrophes">\'\'\'</span><span class="cm-mw-link-ground cm-mw-link-text cm-mw-strong">bold link</span><span class="cm-mw-link-ground cm-mw-link-text cm-mw-apostrophes">\'\'\'</span><span class="cm-mw-link-ground cm-mw-link-bracket">]]</span> </div>'
+		output: '<div class="cm-line"><span class="cm-mw-link-ground cm-mw-link-bracket">[[</span><span class="cm-mw-link-ground cm-mw-link-pagename cm-mw-pagename">Link title</span><span class="cm-mw-link-ground cm-mw-link-delimiter">|</span><span class="cm-mw-link-ground cm-mw-link-text cm-mw-apostrophes">\'\'\'</span><span class="cm-mw-link-ground cm-mw-link-text cm-mw-strong">bold link</span><span class="cm-mw-link-ground cm-mw-link-text cm-mw-apostrophes">\'\'\'</span><span class="cm-mw-link-ground cm-mw-link-bracket">]]</span> </div>'
+	},
+	{
+		title: 'file link',
+		input: '[[File:Example.jpg|x20px|link=http://www.wikipedia.org|thumb|left|sub|Caption with [[link]] inside|alt=Alt text|class=class-name]]',
+		output: '<div class="cm-line"><span class="cm-mw-link-ground cm-mw-link-bracket">[[</span><span class="cm-mw-link-ground cm-mw-link-pagename cm-mw-pagename">File:Example.jpg</span><span class="cm-mw-link-ground cm-mw-link-delimiter">|</span><span class="cm-mw-link-ground cm-mw-image-parameter">x20px</span><span class="cm-mw-link-ground cm-mw-link-delimiter">|</span><span class="cm-mw-link-ground cm-mw-image-parameter">link=</span><span class="cm-mw-link-ground cm-mw-link-text">http://www.wikipedia.org</span><span class="cm-mw-link-ground cm-mw-link-delimiter">|</span><span class="cm-mw-link-ground cm-mw-image-parameter">thumb</span><span class="cm-mw-link-ground cm-mw-link-delimiter">|</span><span class="cm-mw-link-ground cm-mw-image-parameter">left</span><span class="cm-mw-link-ground cm-mw-link-delimiter">|</span><span class="cm-mw-link-ground cm-mw-image-parameter">sub</span><span class="cm-mw-link-ground cm-mw-link-delimiter">|</span><span class="cm-mw-link-ground cm-mw-link-text">Caption with </span><span class="cm-mw-link-ground cm-mw-link-bracket">[[</span><span class="cm-mw-link-ground cm-mw-link-pagename cm-mw-pagename">link</span><span class="cm-mw-link-ground cm-mw-link-bracket">]]</span><span class="cm-mw-link-ground cm-mw-link-text"> inside</span><span class="cm-mw-link-ground cm-mw-link-delimiter">|</span><span class="cm-mw-link-ground cm-mw-image-parameter">alt=</span><span class="cm-mw-link-ground cm-mw-link-text">Alt text</span><span class="cm-mw-link-ground cm-mw-link-delimiter">|</span><span class="cm-mw-link-ground cm-mw-image-parameter">class=</span><span class="cm-mw-link-ground cm-mw-link-text">class-name</span><span class="cm-mw-link-ground cm-mw-link-bracket">]]</span> </div>'
 	},
 	{
 		title: 'horizontal rule',
@@ -135,12 +160,12 @@ const testCases = [
 	{
 		title: 'capitalization of tags',
 		input: '<ref></Ref>',
-		output: '<div class="cm-line"><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&lt;</span><span class="cm-mw-exttag-name cm-mw-ext-ref">ref</span><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&gt;</span><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&lt;/</span><span class="cm-mw-exttag-name cm-mw-ext-ref">Ref</span><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&gt;</span> </div>'
+		output: '<div class="cm-line"><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&lt;</span><span class="cm-mw-exttag-name cm-mw-ext-ref">ref</span><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&gt;&lt;/</span><span class="cm-mw-exttag-name cm-mw-ext-ref">Ref</span><span class="cm-mw-exttag-bracket cm-mw-ext-ref">&gt;</span> </div>'
 	},
 	{
 		title: 'multi-line tag',
 		input: '<div\nid="foo"\n>bar</div>',
-		output: '<div class="cm-line"><span class="cm-mw-htmltag-bracket">&lt;</span><span class="cm-mw-htmltag-name">div</span></div><div class="cm-line"><span class="cm-mw-htmltag-attribute">id="foo"</span></div><div class="cm-line"><span class="cm-mw-htmltag-bracket">&gt;</span>bar<span class="cm-mw-htmltag-bracket">&lt;/</span><span class="cm-mw-htmltag-name">div</span><span class="cm-mw-htmltag-bracket">&gt;</span> </div>'
+		output: '<div class="cm-line"><span class="cm-mw-htmltag-bracket">&lt;</span><span class="cm-mw-htmltag-name">div</span></div><div class="cm-line"><span class="cm-mw-htmltag-attribute">id=</span><span class="cm-mw-htmltag-attribute-value">"foo"</span></div><div class="cm-line"><span class="cm-mw-htmltag-bracket">&gt;</span>bar<span class="cm-mw-htmltag-bracket">&lt;/</span><span class="cm-mw-htmltag-name">div</span><span class="cm-mw-htmltag-bracket">&gt;</span> </div>'
 	},
 	{
 		title: 'HTML entities',
@@ -172,37 +197,24 @@ const testCases = [
 		title: 'Localized parser function',
 		input: '{{מיון רגיל:AAA}}',
 		output: '<div class="cm-line"><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">{{</span><span class="cm-mw-ext-ground cm-mw-parserfunction-name">מיון רגיל</span><span class="cm-mw-ext-ground cm-mw-parserfunction-delimiter">:</span><span class="cm-mw-ext-ground cm-mw-parserfunction">AAA</span><span class="cm-mw-ext-ground cm-mw-parserfunction-bracket">}}</span> </div>'
+	},
+	{
+		title: 'Redirection',
+		input: ' \n #redirect : [[foo]]\n#REDIRECT [[bar]]',
+		output: '<div class="cm-line"> </div><div class="cm-line"><span class="cm-mw-redirect"> #redirect : </span><span class="cm-mw-link-ground cm-mw-link-bracket">[[</span><span class="cm-mw-link-ground cm-mw-link-pagename cm-mw-pagename">foo</span><span class="cm-mw-link-ground cm-mw-link-bracket">]]</span></div><div class="cm-line"><span class="cm-mw-list">#</span>REDIRECT <span class="cm-mw-link-ground cm-mw-link-bracket">[[</span><span class="cm-mw-link-ground cm-mw-link-pagename cm-mw-pagename">bar</span><span class="cm-mw-link-ground cm-mw-link-bracket">]]</span> </div>'
+	},
+	{
+		title: 'Very long line (T366035)',
+		input: '__notoc__<p>'.repeat( 500 ) + '\n<p>',
+		output: '<div class="cm-line">' + '<span class="cm-mw-double-underscore">__notoc__</span><span class="cm-mw-htmltag-bracket">&lt;</span><span class="cm-mw-htmltag-name">p</span><span class="cm-mw-htmltag-bracket">&gt;</span>'.repeat( 500 ) + '</div><div class="cm-line">&lt;p&gt; </div>'
 	}
 ];
 
 // Setup CodeMirror instance.
 const textarea = document.createElement( 'textarea' );
 document.body.appendChild( textarea );
-const cm = new CodeMirror( textarea );
-// Stub the config normally provided by mw.config.get('extCodeMirrorConfig')
-const mwLang = mediaWikiLang( {}, {
-	urlProtocols: 'ftp://|https://|news:',
-	doubleUnderscore: [ {
-		__notoc__: 'notoc'
-	} ],
-	functionSynonyms: [ {}, {
-		'!': '!',
-		'מיון רגיל': 'defaultsort'
-	} ],
-	tags: {
-		nowiki: true,
-		pre: true,
-		ref: true,
-		references: true,
-		// Made-up tag, for testing when a corresponding TagMode is not configured.
-		myextension: true
-	},
-	tagModes: {
-		ref: 'mediawiki',
-		references: 'mediawiki'
-	}
-} );
-cm.initialize( [ ...cm.defaultExtensions, mwLang ] );
+const cm = new CodeMirror( textarea, mediaWikiLang() );
+cm.initialize();
 
 describe( 'CodeMirrorModeMediaWiki', () => {
 	it.each( testCases )(
@@ -220,15 +232,14 @@ describe( 'CodeMirrorModeMediaWiki', () => {
 				selection: { anchor: input.length + 1 }
 			} );
 			cm.$textarea.textSelection = jest.fn().mockReturnValue( input );
-			expect( cm.view.dom.querySelector( '.cm-content' ).innerHTML ).toStrictEqual( output );
+			expect( cm.view.dom.querySelector( '.cm-content' ).innerHTML.split( /(?=<(?:div|span))/ ) )
+				.toStrictEqual( output.split( /(?=<(?:div|span))/ ) );
 		}
 	);
 
 	it( 'configuration contains all expected tokens', () => {
 		expect( Object.keys( mwModeConfig.tags ) ).toStrictEqual( [
 			'apostrophes',
-			'apostrophesBold',
-			'apostrophesItalic',
 			'comment',
 			'doubleUnderscore',
 			'extLink',
@@ -275,20 +286,25 @@ describe( 'CodeMirrorModeMediaWiki', () => {
 			'extPre',
 			'extTag',
 			'extTagAttribute',
+			'extTagAttributeValue',
 			'extTagBracket',
 			'extTagName',
+			'htmlTagAttributeValue',
 			'freeExtLink',
 			'freeExtLinkProtocol',
 			'htmlEntity',
+			'imageParameter',
 			'link',
 			'linkPageName',
 			'nowiki',
 			'pageName',
 			'pre',
+			'redirect',
 			'section',
 			'skipFormatting',
 			'strong',
 			'tableCaption',
+			'tableDefinitionValue',
 			'templateVariableDelimiter'
 		] );
 	} );
@@ -302,8 +318,6 @@ describe( 'CodeMirrorModeMediaWiki', () => {
 			.map( ( tagStyle ) => tagStyle.class );
 		expect( cssClasses ).toStrictEqual( [
 			'cm-mw-apostrophes',
-			'cm-mw-apostrophes-bold',
-			'cm-mw-apostrophes-italic',
 			'cm-mw-comment',
 			'cm-mw-double-underscore',
 			'cm-mw-extlink',
@@ -351,19 +365,24 @@ describe( 'CodeMirrorModeMediaWiki', () => {
 			'cm-mw-exttag-bracket',
 			'cm-mw-exttag',
 			'cm-mw-exttag-attribute',
+			'cm-mw-exttag-attribute-value',
 			'cm-mw-exttag-name',
+			'cm-mw-htmltag-attribute-value',
 			'cm-mw-free-extlink',
 			'cm-mw-free-extlink-protocol',
 			'cm-mw-html-entity',
+			'cm-mw-image-parameter',
 			'cm-mw-link',
 			'cm-mw-link-pagename',
 			'cm-mw-tag-nowiki',
 			'cm-mw-pagename',
 			'cm-mw-tag-pre',
+			'cm-mw-redirect',
 			'cm-mw-section',
 			'cm-mw-skipformatting',
 			'cm-mw-strong',
 			'cm-mw-table-caption',
+			'cm-mw-table-definition-value',
 			'cm-mw-templatevariable-delimiter',
 			// Dynamically generated tags
 			'cm-mw-ext-ground',
@@ -397,11 +416,15 @@ describe( 'CodeMirrorModeMediaWiki', () => {
 			'cm-mw-template3-ext3-link-ground',
 			'cm-mw-template3-ground',
 			'cm-mw-template3-link-ground',
-			/** Added by the MW config stub above {@link mwLang} */
+			// Added by the MW config stub in setup.js
+			'cm-mw-tag-indicator',
+			'cm-mw-ext-indicator',
 			'cm-mw-tag-ref',
 			'cm-mw-ext-ref',
 			'cm-mw-tag-references',
 			'cm-mw-ext-references',
+			'cm-mw-tag-templatestyles',
+			'cm-mw-ext-templatestyles',
 			'cm-mw-tag-myextension',
 			'cm-mw-ext-myextension'
 		] );

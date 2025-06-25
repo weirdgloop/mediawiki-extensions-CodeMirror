@@ -2,6 +2,11 @@
  * This style sheet overrides colors in mediawiki.less
  * with more colorblind-friendly colors.
  */
+@import './codemirror.mixins.less';
+
+/* copied from codemirror.mediawiki.less */
+@table-color: #d08;
+@table-color-dark: #ff5edd;
 
 .cm-mw-colorblind-colors {
 	/* misc */
@@ -10,9 +15,9 @@
 	.cm-mw-doubleUnderscore,
 	.cm-mw-signature,
 	.cm-mw-hr,
+	.cm-mw-redirect,
 	.cm-mw-indenting,
-	.cm-mw-apostrophes-bold,
-	.cm-mw-apostrophes-italic {
+	.cm-mw-apostrophes {
 		color: #e4a400;
 	}
 
@@ -20,10 +25,18 @@
 	.cm-mw-exttag-name,
 	.cm-mw-exttag-bracket,
 	.cm-mw-exttag-attribute,
+	.cm-mw-exttag-attribute-value,
 	.cm-mw-htmltag-name,
 	.cm-mw-htmltag-bracket,
-	.cm-mw-htmltag-attribute {
+	.cm-mw-htmltag-attribute,
+	.cm-mw-htmltag-attribute-value {
 		color: #56b4e9;
+	}
+
+	/* table */
+	.cm-mw-table-definition-value {
+		color: @table-color;
+		.darkmode( color, @table-color-dark );
 	}
 
 	/* templates */
@@ -50,6 +63,7 @@
 	.cm-mw-doubleUnderscore,
 	.cm-mw-signature,
 	.cm-mw-hr,
+	.cm-mw-redirect,
 	pre.CodeMirror-line-like.cm-mw-exttag,
 	.cm-mw-exttag,
 	.cm-mw-tag-pre,

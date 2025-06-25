@@ -83,10 +83,10 @@ function init() {
 			return false;
 		}
 
-		const namespaces = mw.config.get( 'wgCodeMirrorLineNumberingNamespaces' );
+		const namespaces = mw.config.get( 'extCodeMirrorConfig' ).legacyLineNumberingNamespaces;
 		// Set to [] to disable everywhere, or null to enable everywhere
 		return !namespaces ||
-			namespaces.indexOf( mw.config.get( 'wgNamespaceNumber' ) ) !== -1;
+			namespaces.includes( mw.config.get( 'wgNamespaceNumber' ) );
 	}
 
 	// Keep these modules in sync with MediaWiki\Extension\CodeMirror\Hooks.php
@@ -196,6 +196,16 @@ function init() {
 			codeMirror.on( 'blur', () => {
 				$textbox1[ 0 ].dispatchEvent( new Event( 'blur' ) );
 			} );
+			codeMirror.on( 'keydown', ( _, e ) => {
+				if ( e.ctrlKey || e.metaKey ) {
+					// Possibly a WikiEditor keyboard shortcut
+					if ( !$textbox1[ 0 ].dispatchEvent( new KeyboardEvent( 'keydown', e ) ) ) {
+						// If it was actually a WikiEditor keyboard shortcut, the default would be prevented
+						// for the dispatched event and hence dispatchEvent() would return false
+						e.preventDefault();
+					}
+				}
+			} );
 			mw.hook( 'editRecovery.loadEnd' ).add( ( data ) => {
 				codeMirror.on( 'change', data.fieldChangeHandler );
 			} );
@@ -240,6 +250,7 @@ function init() {
 			codeMirror.refresh();
 
 			mw.hook( 'ext.CodeMirror.switch' ).fire( true, $codeMirror );
+			mw.hook( 'ext.CodeMirror.toggle' ).fire( true, null, $textbox1[ 0 ] );
 		} );
 	}
 
@@ -284,19 +295,12 @@ function init() {
 			$textbox1.scrollTop( scrollTop );
 
 			mw.hook( 'ext.CodeMirror.switch' ).fire( false, $textbox1 );
+			mw.hook( 'ext.CodeMirror.toggle' ).fire( false, null, $textbox1[ 0 ] );
 		} else {
 			enableCodeMirror();
 			setCodeEditorPreference( true );
 		}
 		updateToolbarButton();
-
-		extCodeMirror.logUsage( {
-			editor: 'wikitext',
-			enabled: codeMirror !== null,
-			toggled: true,
-			// eslint-disable-next-line no-jquery/no-global-selector,camelcase
-			edit_start_ts_ms: parseInt( $( 'input[name="wpStarttime"]' ).val() ) * 1000 || 0
-		} );
 	}
 
 	/**
@@ -343,14 +347,6 @@ function init() {
 			enableCodeMirror();
 		}
 		updateToolbarButton();
-
-		extCodeMirror.logUsage( {
-			editor: 'wikitext',
-			enabled: useCodeMirror,
-			toggled: false,
-			// eslint-disable-next-line no-jquery/no-global-selector,camelcase
-			edit_start_ts_ms: parseInt( $( 'input[name="wpStarttime"]' ).val() ) * 1000 || 0
-		} );
 	}
 
 	// Add CodeMirror button to the enhanced editing toolbar.

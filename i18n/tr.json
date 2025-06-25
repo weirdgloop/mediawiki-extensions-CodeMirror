@@ -3,9 +3,9 @@
 		"authors": [
 			"BaRaN6161 TURK",
 			"Diyapazon",
+			"LisafBia",
 			"SaldırganSincap",
-			"Vito Genovese",
-			"LisafBia"
+			"Vito Genovese"
 		]
 	},
 	"codemirror-desc": "Vikimetin düzenleyicide sözdizim vurgulaması sağlar",
@@ -18,6 +18,7 @@
 	"codemirror-all-tooltip": "Tüm eşleşmeleri bul",
 	"codemirror-match-case": "Büyük/küçük harf duyarlı",
 	"codemirror-regexp": "Düzenli ifade",
+	"codemirror-by-word": "Tüm kelime",
 	"codemirror-replace": "Değiştir",
 	"codemirror-replace-placeholder": "Değiştir",
 	"codemirror-replace-all": "Hepsini değiştir",

@@ -1,5 +1,86 @@
 'use strict';
 
+// These are filled with ranges (rangeFrom[i] up to but not including
+// rangeTo[i]) of code points that count as extending characters.
+let rangeFrom = [], rangeTo = []
+
+;(() => {
+  // Compressed representation of the Grapheme_Cluster_Break=Extend
+  // information from
+  // http://www.unicode.org/Public/16.0.0/ucd/auxiliary/GraphemeBreakProperty.txt.
+  // Each pair of elements represents a range, as an offet from the
+  // previous range and a length. Numbers are in base-36, with the empty
+  // string being a shorthand for 1.
+  let numbers = "lc,34,7n,7,7b,19,,,,2,,2,,,20,b,1c,l,g,,2t,7,2,6,2,2,,4,z,,u,r,2j,b,1m,9,9,,o,4,,9,,3,,5,17,3,3b,f,,w,1j,,,,4,8,4,,3,7,a,2,t,,1m,,,,2,4,8,,9,,a,2,q,,2,2,1l,,4,2,4,2,2,3,3,,u,2,3,,b,2,1l,,4,5,,2,4,,k,2,m,6,,,1m,,,2,,4,8,,7,3,a,2,u,,1n,,,,c,,9,,14,,3,,1l,3,5,3,,4,7,2,b,2,t,,1m,,2,,2,,3,,5,2,7,2,b,2,s,2,1l,2,,,2,4,8,,9,,a,2,t,,20,,4,,2,3,,,8,,29,,2,7,c,8,2q,,2,9,b,6,22,2,r,,,,,,1j,e,,5,,2,5,b,,10,9,,2u,4,,6,,2,2,2,p,2,4,3,g,4,d,,2,2,6,,f,,jj,3,qa,3,t,3,t,2,u,2,1s,2,,7,8,,2,b,9,,19,3,3b,2,y,,3a,3,4,2,9,,6,3,63,2,2,,1m,,,7,,,,,2,8,6,a,2,,1c,h,1r,4,1c,7,,,5,,14,9,c,2,w,4,2,2,,3,1k,,,2,3,,,3,1m,8,2,2,48,3,,d,,7,4,,6,,3,2,5i,1m,,5,ek,,5f,x,2da,3,3x,,2o,w,fe,6,2x,2,n9w,4,,a,w,2,28,2,7k,,3,,4,,p,2,5,,47,2,q,i,d,,12,8,p,b,1a,3,1c,,2,4,2,2,13,,1v,6,2,2,2,2,c,,8,,1b,,1f,,,3,2,2,5,2,,,16,2,8,,6m,,2,,4,,fn4,,kh,g,g,g,a6,2,gt,,6a,,45,5,1ae,3,,2,5,4,14,3,4,,4l,2,fx,4,ar,2,49,b,4w,,1i,f,1k,3,1d,4,2,2,1x,3,10,5,,8,1q,,c,2,1g,9,a,4,2,,2n,3,2,,,2,6,,4g,,3,8,l,2,1l,2,,,,,m,,e,7,3,5,5f,8,2,3,,,n,,29,,2,6,,,2,,,2,,2,6j,,2,4,6,2,,2,r,2,2d,8,2,,,2,2y,,,,2,6,,,2t,3,2,4,,5,77,9,,2,6t,,a,2,,,4,,40,4,2,2,4,,w,a,14,6,2,4,8,,9,6,2,3,1a,d,,2,ba,7,,6,,,2a,m,2,7,,2,,2,3e,6,3,,,2,,7,,,20,2,3,,,,9n,2,f0b,5,1n,7,t4,,1r,4,29,,f5k,2,43q,,,3,4,5,8,8,2,7,u,4,44,3,1iz,1j,4,1e,8,,e,,m,5,,f,11s,7,,h,2,7,,2,,5,79,7,c5,4,15s,7,31,7,240,5,gx7k,2o,3k,6o".split(",").map(s => s ? parseInt(s, 36) : 1);
+  for (let i = 0, n = 0; i < numbers.length; i++)
+    (i % 2 ? rangeTo : rangeFrom).push(n = n + numbers[i]);
+})();
+
+function isExtendingChar(code) {
+  if (code < 768) return false
+  for (let from = 0, to = rangeFrom.length;;) {
+    let mid = (from + to) >> 1;
+    if (code < rangeFrom[mid]) to = mid;
+    else if (code >= rangeTo[mid]) from = mid + 1;
+    else return true
+    if (from == to) return false
+  }
+}
+
+function isRegionalIndicator(code) {
+  return code >= 0x1F1E6 && code <= 0x1F1FF
+}
+
+const ZWJ = 0x200d;
+
+function findClusterBreak$1(str, pos, forward = true, includeExtending = true) {
+  return (forward ? nextClusterBreak : prevClusterBreak)(str, pos, includeExtending)
+}
+
+function nextClusterBreak(str, pos, includeExtending) {
+  if (pos == str.length) return pos
+  // If pos is in the middle of a surrogate pair, move to its start
+  if (pos && surrogateLow$1(str.charCodeAt(pos)) && surrogateHigh$1(str.charCodeAt(pos - 1))) pos--;
+  let prev = codePointAt$1(str, pos);
+  pos += codePointSize$1(prev);
+  while (pos < str.length) {
+    let next = codePointAt$1(str, pos);
+    if (prev == ZWJ || next == ZWJ || includeExtending && isExtendingChar(next)) {
+      pos += codePointSize$1(next);
+      prev = next;
+    } else if (isRegionalIndicator(next)) {
+      let countBefore = 0, i = pos - 2;
+      while (i >= 0 && isRegionalIndicator(codePointAt$1(str, i))) { countBefore++; i -= 2; }
+      if (countBefore % 2 == 0) break
+      else pos += 2;
+    } else {
+      break
+    }
+  }
+  return pos
+}
+
+function prevClusterBreak(str, pos, includeExtending) {
+  while (pos > 0) {
+    let found = nextClusterBreak(str, pos - 2, includeExtending);
+    if (found < pos) return found
+    pos--;
+  }
+  return 0
+}
+
+function codePointAt$1(str, pos) {
+  let code0 = str.charCodeAt(pos);
+  if (!surrogateHigh$1(code0) || pos + 1 == str.length) return code0
+  let code1 = str.charCodeAt(pos + 1);
+  if (!surrogateLow$1(code1)) return code0
+  return ((code0 - 0xd800) << 10) + (code1 - 0xdc00) + 0x10000
+}
+
+function surrogateLow$1(ch) { return ch >= 0xDC00 && ch < 0xE000 }
+function surrogateHigh$1(ch) { return ch >= 0xD800 && ch < 0xDC00 }
+function codePointSize$1(code) { return code < 0x10000 ? 1 : 2 }
+
 /**
 The data structure for documents. @nonabstract
 */
@@ -24,6 +105,7 @@ class Text {
     Replace a range of the text with the given content.
     */
     replace(from, to, text) {
+        [from, to] = clip(this, from, to);
         let parts = [];
         this.decompose(0, from, parts, 2 /* Open.To */);
         if (text.length)
@@ -41,6 +123,7 @@ class Text {
     Retrieve the text between the given points.
     */
     slice(from, to = this.length) {
+        [from, to] = clip(this, from, to);
         let parts = [];
         this.decompose(from, to, parts, 0);
         return TextNode.from(parts, to - from);
@@ -167,6 +250,7 @@ class TextLeaf extends Text {
     replace(from, to, text) {
         if (!(text instanceof TextLeaf))
             return super.replace(from, to, text);
+        [from, to] = clip(this, from, to);
         let lines = appendText(this.text, appendText(text.text, sliceText(this.text, 0, from)), to);
         let newLen = this.length + text.length - (to - from);
         if (lines.length <= 32 /* Tree.Branch */)
@@ -174,6 +258,7 @@ class TextLeaf extends Text {
         return TextNode.from(TextLeaf.split(lines, []), newLen);
     }
     sliceString(from, to = this.length, lineSep = "\n") {
+        [from, to] = clip(this, from, to);
         let result = "";
         for (let pos = 0, i = 0; pos <= to && i < this.text.length; i++) {
             let line = this.text[i], end = pos + line.length;
@@ -242,6 +327,7 @@ class TextNode extends Text {
         }
     }
     replace(from, to, text) {
+        [from, to] = clip(this, from, to);
         if (text.lines < this.lines)
             for (let i = 0, pos = 0; i < this.children.length; i++) {
                 let child = this.children[i], end = pos + child.length;
@@ -264,6 +350,7 @@ class TextNode extends Text {
         return super.replace(from, to, text);
     }
     sliceString(from, to = this.length, lineSep = "\n") {
+        [from, to] = clip(this, from, to);
         let result = "";
         for (let i = 0, pos = 0; i < this.children.length && pos <= to; i++) {
             let child = this.children[i], end = pos + child.length;
@@ -485,7 +572,11 @@ class LineCursor {
     }
     next(skip = 0) {
         let { done, lineBreak, value } = this.inner.next(skip);
-        if (done) {
+        if (done && this.afterBreak) {
+            this.value = "";
+            this.afterBreak = false;
+        }
+        else if (done) {
             this.done = true;
             this.value = "";
         }
@@ -547,27 +638,11 @@ class Line {
     */
     get length() { return this.to - this.from; }
 }
+function clip(text, from, to) {
+    from = Math.max(0, Math.min(text.length, from));
+    return [from, Math.max(from, Math.min(text.length, to))];
+}
 
-// Compressed representation of the Grapheme_Cluster_Break=Extend
-// information from
-// http://www.unicode.org/Public/13.0.0/ucd/auxiliary/GraphemeBreakProperty.txt.
-// Each pair of elements represents a range, as an offet from the
-// previous range and a length. Numbers are in base-36, with the empty
-// string being a shorthand for 1.
-let extend = /*@__PURE__*/"lc,34,7n,7,7b,19,,,,2,,2,,,20,b,1c,l,g,,2t,7,2,6,2,2,,4,z,,u,r,2j,b,1m,9,9,,o,4,,9,,3,,5,17,3,3b,f,,w,1j,,,,4,8,4,,3,7,a,2,t,,1m,,,,2,4,8,,9,,a,2,q,,2,2,1l,,4,2,4,2,2,3,3,,u,2,3,,b,2,1l,,4,5,,2,4,,k,2,m,6,,,1m,,,2,,4,8,,7,3,a,2,u,,1n,,,,c,,9,,14,,3,,1l,3,5,3,,4,7,2,b,2,t,,1m,,2,,2,,3,,5,2,7,2,b,2,s,2,1l,2,,,2,4,8,,9,,a,2,t,,20,,4,,2,3,,,8,,29,,2,7,c,8,2q,,2,9,b,6,22,2,r,,,,,,1j,e,,5,,2,5,b,,10,9,,2u,4,,6,,2,2,2,p,2,4,3,g,4,d,,2,2,6,,f,,jj,3,qa,3,t,3,t,2,u,2,1s,2,,7,8,,2,b,9,,19,3,3b,2,y,,3a,3,4,2,9,,6,3,63,2,2,,1m,,,7,,,,,2,8,6,a,2,,1c,h,1r,4,1c,7,,,5,,14,9,c,2,w,4,2,2,,3,1k,,,2,3,,,3,1m,8,2,2,48,3,,d,,7,4,,6,,3,2,5i,1m,,5,ek,,5f,x,2da,3,3x,,2o,w,fe,6,2x,2,n9w,4,,a,w,2,28,2,7k,,3,,4,,p,2,5,,47,2,q,i,d,,12,8,p,b,1a,3,1c,,2,4,2,2,13,,1v,6,2,2,2,2,c,,8,,1b,,1f,,,3,2,2,5,2,,,16,2,8,,6m,,2,,4,,fn4,,kh,g,g,g,a6,2,gt,,6a,,45,5,1ae,3,,2,5,4,14,3,4,,4l,2,fx,4,ar,2,49,b,4w,,1i,f,1k,3,1d,4,2,2,1x,3,10,5,,8,1q,,c,2,1g,9,a,4,2,,2n,3,2,,,2,6,,4g,,3,8,l,2,1l,2,,,,,m,,e,7,3,5,5f,8,2,3,,,n,,29,,2,6,,,2,,,2,,2,6j,,2,4,6,2,,2,r,2,2d,8,2,,,2,2y,,,,2,6,,,2t,3,2,4,,5,77,9,,2,6t,,a,2,,,4,,40,4,2,2,4,,w,a,14,6,2,4,8,,9,6,2,3,1a,d,,2,ba,7,,6,,,2a,m,2,7,,2,,2,3e,6,3,,,2,,7,,,20,2,3,,,,9n,2,f0b,5,1n,7,t4,,1r,4,29,,f5k,2,43q,,,3,4,5,8,8,2,7,u,4,44,3,1iz,1j,4,1e,8,,e,,m,5,,f,11s,7,,h,2,7,,2,,5,79,7,c5,4,15s,7,31,7,240,5,gx7k,2o,3k,6o".split(",").map(s => s ? parseInt(s, 36) : 1);
-// Convert offsets into absolute values
-for (let i = 1; i < extend.length; i++)
-    extend[i] += extend[i - 1];
-function isExtendingChar(code) {
-    for (let i = 1; i < extend.length; i += 2)
-        if (extend[i] > code)
-            return extend[i - 1] <= code;
-    return false;
-}
-function isRegionalIndicator(code) {
-    return code >= 0x1F1E6 && code <= 0x1F1FF;
-}
-const ZWJ = 0x200d;
 /**
 Returns a next grapheme cluster break _after_ (not equal to)
 `pos`, if `forward` is true, or before otherwise. Returns `pos`
@@ -577,47 +652,7 @@ Moves across surrogate pairs, extending characters (when
 joiners, and flag emoji.
 */
 function findClusterBreak(str, pos, forward = true, includeExtending = true) {
-    return (forward ? nextClusterBreak : prevClusterBreak)(str, pos, includeExtending);
-}
-function nextClusterBreak(str, pos, includeExtending) {
-    if (pos == str.length)
-        return pos;
-    // If pos is in the middle of a surrogate pair, move to its start
-    if (pos && surrogateLow(str.charCodeAt(pos)) && surrogateHigh(str.charCodeAt(pos - 1)))
-        pos--;
-    let prev = codePointAt(str, pos);
-    pos += codePointSize(prev);
-    while (pos < str.length) {
-        let next = codePointAt(str, pos);
-        if (prev == ZWJ || next == ZWJ || includeExtending && isExtendingChar(next)) {
-            pos += codePointSize(next);
-            prev = next;
-        }
-        else if (isRegionalIndicator(next)) {
-            let countBefore = 0, i = pos - 2;
-            while (i >= 0 && isRegionalIndicator(codePointAt(str, i))) {
-                countBefore++;
-                i -= 2;
-            }
-            if (countBefore % 2 == 0)
-                break;
-            else
-                pos += 2;
-        }
-        else {
-            break;
-        }
-    }
-    return pos;
-}
-function prevClusterBreak(str, pos, includeExtending) {
-    while (pos > 0) {
-        let found = nextClusterBreak(str, pos - 2, includeExtending);
-        if (found < pos)
-            return found;
-        pos--;
-    }
-    return 0;
+    return findClusterBreak$1(str, pos, forward, includeExtending);
 }
 function surrogateLow(ch) { return ch >= 0xDC00 && ch < 0xE000; }
 function surrogateHigh(ch) { return ch >= 0xD800 && ch < 0xDC00; }
@@ -647,7 +682,7 @@ function fromCodePoint(code) {
     return String.fromCharCode((code >> 10) + 0xd800, (code & 1023) + 0xdc00);
 }
 /**
-The amount of positions a character takes up a JavaScript string.
+The amount of positions a character takes up in a JavaScript string.
 */
 function codePointSize(code) { return code < 0x10000 ? 1 : 2; }
 
@@ -776,7 +811,7 @@ class ChangeDesc {
     Map this description, which should start with the same document
     as `other`, over another set of changes, so that it can be
     applied after it. When `before` is true, map as if the changes
-    in `other` happened before the ones in `this`.
+    in `this` happened before the ones in `other`.
     */
     mapDesc(other, before = false) { return other.empty ? this : mapSet(this, other, before); }
     mapPos(pos, assoc = -1, mode = exports.MapMode.Simple) {
@@ -1079,7 +1114,7 @@ function addSection(sections, len, ins, forceJoin = false) {
     let last = sections.length - 2;
     if (last >= 0 && ins <= 0 && ins == sections[last + 1])
         sections[last] += len;
-    else if (len == 0 && sections[last] == 0)
+    else if (last >= 0 && len == 0 && sections[last] == 0)
         sections[last + 1] += ins;
     else if (forceJoin) {
         sections[last] += len;
@@ -1137,7 +1172,10 @@ function mapSet(setA, setB, before, mkSet = false) {
     // content has been inserted already, and refers to the section
     // index.
     for (let inserted = -1;;) {
-        if (a.ins == -1 && b.ins == -1) {
+        if (a.done && b.len || b.done && a.len) {
+            throw new Error("Mismatched change set lengths");
+        }
+        else if (a.ins == -1 && b.ins == -1) {
             // Move across ranges skipped by both sets.
             let len = Math.min(a.len, b.len);
             addSection(sections, len, -1);
@@ -1314,12 +1352,12 @@ class SelectionRange {
     The anchor of the range—the side that doesn't move when you
     extend it.
     */
-    get anchor() { return this.flags & 16 /* RangeFlag.Inverted */ ? this.to : this.from; }
+    get anchor() { return this.flags & 32 /* RangeFlag.Inverted */ ? this.to : this.from; }
     /**
     The head of the range, which is moved when the range is
     [extended](https://codemirror.net/6/docs/ref/#state.SelectionRange.extend).
     */
-    get head() { return this.flags & 16 /* RangeFlag.Inverted */ ? this.from : this.to; }
+    get head() { return this.flags & 32 /* RangeFlag.Inverted */ ? this.from : this.to; }
     /**
     True when `anchor` and `head` are at the same position.
     */
@@ -1330,14 +1368,14 @@ class SelectionRange {
     the character before its position, 1 the character after, and 0
     means no association.
     */
-    get assoc() { return this.flags & 4 /* RangeFlag.AssocBefore */ ? -1 : this.flags & 8 /* RangeFlag.AssocAfter */ ? 1 : 0; }
+    get assoc() { return this.flags & 8 /* RangeFlag.AssocBefore */ ? -1 : this.flags & 16 /* RangeFlag.AssocAfter */ ? 1 : 0; }
     /**
     The bidirectional text level associated with this cursor, if
     any.
     */
     get bidiLevel() {
-        let level = this.flags & 3 /* RangeFlag.BidiLevelMask */;
-        return level == 3 ? null : level;
+        let level = this.flags & 7 /* RangeFlag.BidiLevelMask */;
+        return level == 7 ? null : level;
     }
     /**
     The goal column (stored vertical offset) associated with a
@@ -1346,8 +1384,8 @@ class SelectionRange {
     lines of different length.
     */
     get goalColumn() {
-        let value = this.flags >> 5 /* RangeFlag.GoalColumnOffset */;
-        return value == 33554431 /* RangeFlag.NoGoalColumn */ ? undefined : value;
+        let value = this.flags >> 6 /* RangeFlag.GoalColumnOffset */;
+        return value == 16777215 /* RangeFlag.NoGoalColumn */ ? undefined : value;
     }
     /**
     Map this range through a change, producing a valid range in the
@@ -1376,8 +1414,9 @@ class SelectionRange {
     /**
     Compare this range to another range.
     */
-    eq(other) {
-        return this.anchor == other.anchor && this.head == other.head;
+    eq(other, includeAssoc = false) {
+        return this.anchor == other.anchor && this.head == other.head &&
+            (!includeAssoc || !this.empty || this.assoc == other.assoc);
     }
     /**
     Return a JSON-serializable object representing the range.
@@ -1427,14 +1466,17 @@ class EditorSelection {
         return EditorSelection.create(this.ranges.map(r => r.map(change, assoc)), this.mainIndex);
     }
     /**
-    Compare this selection to another selection.
+    Compare this selection to another selection. By default, ranges
+    are compared only by position. When `includeAssoc` is true,
+    cursor ranges must also have the same
+    [`assoc`](https://codemirror.net/6/docs/ref/#state.SelectionRange.assoc) value.
     */
-    eq(other) {
+    eq(other, includeAssoc = false) {
         if (this.ranges.length != other.ranges.length ||
             this.mainIndex != other.mainIndex)
             return false;
         for (let i = 0; i < this.ranges.length; i++)
-            if (!this.ranges[i].eq(other.ranges[i]))
+            if (!this.ranges[i].eq(other.ranges[i], includeAssoc))
                 return false;
         return true;
     }
@@ -1507,18 +1549,18 @@ class EditorSelection {
     safely ignore the optional arguments in most situations.
     */
     static cursor(pos, assoc = 0, bidiLevel, goalColumn) {
-        return SelectionRange.create(pos, pos, (assoc == 0 ? 0 : assoc < 0 ? 4 /* RangeFlag.AssocBefore */ : 8 /* RangeFlag.AssocAfter */) |
-            (bidiLevel == null ? 3 : Math.min(2, bidiLevel)) |
-            ((goalColumn !== null && goalColumn !== void 0 ? goalColumn : 33554431 /* RangeFlag.NoGoalColumn */) << 5 /* RangeFlag.GoalColumnOffset */));
+        return SelectionRange.create(pos, pos, (assoc == 0 ? 0 : assoc < 0 ? 8 /* RangeFlag.AssocBefore */ : 16 /* RangeFlag.AssocAfter */) |
+            (bidiLevel == null ? 7 : Math.min(6, bidiLevel)) |
+            ((goalColumn !== null && goalColumn !== void 0 ? goalColumn : 16777215 /* RangeFlag.NoGoalColumn */) << 6 /* RangeFlag.GoalColumnOffset */));
     }
     /**
     Create a selection range.
     */
     static range(anchor, head, goalColumn, bidiLevel) {
-        let flags = ((goalColumn !== null && goalColumn !== void 0 ? goalColumn : 33554431 /* RangeFlag.NoGoalColumn */) << 5 /* RangeFlag.GoalColumnOffset */) |
-            (bidiLevel == null ? 3 : Math.min(2, bidiLevel));
-        return head < anchor ? SelectionRange.create(head, anchor, 16 /* RangeFlag.Inverted */ | 8 /* RangeFlag.AssocAfter */ | flags)
-            : SelectionRange.create(anchor, head, (head > anchor ? 4 /* RangeFlag.AssocBefore */ : 0) | flags);
+        let flags = ((goalColumn !== null && goalColumn !== void 0 ? goalColumn : 16777215 /* RangeFlag.NoGoalColumn */) << 6 /* RangeFlag.GoalColumnOffset */) |
+            (bidiLevel == null ? 7 : Math.min(6, bidiLevel));
+        return head < anchor ? SelectionRange.create(head, anchor, 32 /* RangeFlag.Inverted */ | 16 /* RangeFlag.AssocAfter */ | flags)
+            : SelectionRange.create(anchor, head, (head > anchor ? 8 /* RangeFlag.AssocBefore */ : 0) | flags);
     }
     /**
     @internal
@@ -1555,6 +1597,9 @@ Examples of uses of facets are the [tab
 size](https://codemirror.net/6/docs/ref/#state.EditorState^tabSize), [editor
 attributes](https://codemirror.net/6/docs/ref/#view.EditorView^editorAttributes), and [update
 listeners](https://codemirror.net/6/docs/ref/#view.EditorView^updateListener).
+
+Note that `Facet` instances can be used anywhere where
+[`FacetReader`](https://codemirror.net/6/docs/ref/#state.FacetReader) is expected.
 */
 class Facet {
     constructor(
@@ -1581,6 +1626,11 @@ class Facet {
         this.default = combine([]);
         this.extensions = typeof enables == "function" ? enables(this) : enables;
     }
+    /**
+    Returns a facet reader for this facet, which can be used to
+    [read](https://codemirror.net/6/docs/ref/#state.EditorState.facet) it but not to define values for it.
+    */
+    get reader() { return this; }
     /**
     Define a new facet.
     */
@@ -1805,6 +1855,11 @@ class StateField {
                 return 1 /* SlotStatus.Changed */;
             },
             reconfigure: (state, oldState) => {
+                let init = state.facet(initField), oldInit = oldState.facet(initField), reInit;
+                if ((reInit = init.find(i => i.field == this)) && reInit != oldInit.find(i => i.field == this)) {
+                    state.values[idx] = reInit.create(state);
+                    return 1 /* SlotStatus.Changed */;
+                }
                 if (oldState.config.address[this.id] != null) {
                     state.values[idx] = oldState.field(this);
                     return 0;
@@ -2479,9 +2534,9 @@ function extendTransaction(tr) {
     }
     return spec == tr ? tr : Transaction.create(state, tr.changes, tr.selection, spec.effects, spec.annotations, spec.scrollIntoView);
 }
-const none$1 = [];
+const none$2 = [];
 function asArray$1(value) {
-    return value == null ? none$1 : Array.isArray(value) ? value : [value];
+    return value == null ? none$2 : Array.isArray(value) ? value : [value];
 }
 
 /**
@@ -2633,7 +2688,8 @@ class EditorState {
         else {
             startValues = tr.startState.values.slice();
         }
-        new EditorState(conf, tr.newDoc, tr.newSelection, startValues, (state, slot) => slot.update(state, tr), tr);
+        let selection = tr.startState.facet(allowMultipleSelections) ? tr.newSelection : tr.newSelection.asSingle();
+        new EditorState(conf, tr.newDoc, selection, startValues, (state, slot) => slot.update(state, tr), tr);
     }
     /**
     Create a [transaction spec](https://codemirror.net/6/docs/ref/#state.TransactionSpec) that
@@ -3367,7 +3423,9 @@ class RangeSet {
             let curTo = Math.min(cursor.to, to);
             if (cursor.point) {
                 let active = cursor.activeForPoint(cursor.to);
-                let openCount = cursor.pointFrom < from ? active.length + 1 : Math.min(active.length, openRanges);
+                let openCount = cursor.pointFrom < from ? active.length + 1
+                    : cursor.point.startSide < 0 ? active.length
+                        : Math.min(active.length, openRanges);
                 iterator.point(pos, curTo, cursor.point, active, openCount, cursor.pointRank);
                 openRanges = Math.min(cursor.openEnd(curTo), active.length);
             }
@@ -3393,6 +3451,19 @@ class RangeSet {
         for (let range of ranges instanceof Range$1 ? [ranges] : sort ? lazySort(ranges) : ranges)
             build.add(range.from, range.to, range.value);
         return build.finish();
+    }
+    /**
+    Join an array of range sets into a single set.
+    */
+    static join(sets) {
+        if (!sets.length)
+            return RangeSet.empty;
+        let result = sets[sets.length - 1];
+        for (let i = sets.length - 2; i >= 0; i--) {
+            for (let layer = sets[i]; layer != RangeSet.empty; layer = layer.nextLayer)
+                result = new RangeSet(layer.chunkPos, layer.chunk, result, Math.max(layer.maxPoint, result.maxPoint));
+        }
+        return result;
     }
 }
 /**
@@ -3711,7 +3782,8 @@ class SpanCursor {
     }
     addActive(trackOpen) {
         let i = 0, { value, to, rank } = this.cursor;
-        while (i < this.activeRank.length && this.activeRank[i] <= rank)
+        // Organize active marks by rank first, then by size
+        while (i < this.activeRank.length && (rank - this.activeRank[i] || to - this.activeTo[i]) > 0)
             i++;
         insert(this.active, i, value);
         insert(this.activeTo, i, to);
@@ -3800,7 +3872,7 @@ function compare(a, startA, b, startB, length, comparator) {
     let endB = startB + length;
     let pos = startB, dPos = startB - startA;
     for (;;) {
-        let diff = (a.to + dPos) - b.to || a.endSide - b.endSide;
+        let dEnd = (a.to + dPos) - b.to, diff = dEnd || a.endSide - b.endSide;
         let end = diff < 0 ? a.to + dPos : b.to, clipEnd = Math.min(end, endB);
         if (a.point || b.point) {
             if (!(a.point && b.point && (a.point == b.point || a.point.eq(b.point)) &&
@@ -3813,6 +3885,8 @@ function compare(a, startA, b, startB, length, comparator) {
         }
         if (end > endB)
             break;
+        if ((dEnd || a.openEnd != b.openEnd) && comparator.boundChange)
+            comparator.boundChange(end);
         pos = end;
         if (diff <= 0)
             a.next();
@@ -3854,7 +3928,7 @@ taking extending characters and tab size into account.
 */
 function countColumn(string, tabSize, to = string.length) {
     let n = 0;
-    for (let i = 0; i < to;) {
+    for (let i = 0; i < to && i < string.length;) {
         if (string.charCodeAt(i) == 9) {
             n += tabSize - (n % tabSize);
             i++;
@@ -4194,12 +4268,6 @@ function getSelection(root) {
 function contains(dom, node) {
     return node ? dom == node || dom.contains(node.nodeType != 1 ? node.parentNode : node) : false;
 }
-function deepActiveElement(doc) {
-    let elt = doc.activeElement;
-    while (elt && elt.shadowRoot)
-        elt = elt.shadowRoot.activeElement;
-    return elt;
-}
 function hasSelection(dom, selection) {
     if (!selection.anchorNode)
         return false;
@@ -4235,6 +4303,9 @@ function domIndex(node) {
             return index;
     }
 }
+function isBlockElement(node) {
+    return node.nodeType == 1 && /^(DIV|P|LI|UL|OL|BLOCKQUOTE|DD|DT|H\d|SECTION|PRE)$/.test(node.nodeName);
+}
 function scanFor(node, off, targetNode, targetOff, dir) {
     for (;;) {
         if (node == targetNode && off == targetOff)
@@ -4267,6 +4338,12 @@ function flattenRect(rect, left) {
     return { left: x, right: x, top: rect.top, bottom: rect.bottom };
 }
 function windowRect(win) {
+    let vp = win.visualViewport;
+    if (vp)
+        return {
+            left: 0, right: vp.width,
+            top: 0, bottom: vp.height
+        };
     return { left: 0, right: win.innerWidth,
         top: 0, bottom: win.innerHeight };
 }
@@ -4304,14 +4381,14 @@ function scrollRectIntoView(dom, rect, side, x, y, xMargin, yMargin, ltr) {
             let moveX = 0, moveY = 0;
             if (y == "nearest") {
                 if (rect.top < bounding.top) {
-                    moveY = -(bounding.top - rect.top + yMargin);
+                    moveY = rect.top - (bounding.top + yMargin);
                     if (side > 0 && rect.bottom > bounding.bottom + moveY)
-                        moveY = rect.bottom - bounding.bottom + moveY + yMargin;
+                        moveY = rect.bottom - bounding.bottom + yMargin;
                 }
                 else if (rect.bottom > bounding.bottom) {
                     moveY = rect.bottom - bounding.bottom + yMargin;
                     if (side < 0 && (rect.top - moveY) < bounding.top)
-                        moveY = -(bounding.top + moveY - rect.top + yMargin);
+                        moveY = rect.top - (bounding.top + yMargin);
                 }
             }
             else {
@@ -4323,14 +4400,14 @@ function scrollRectIntoView(dom, rect, side, x, y, xMargin, yMargin, ltr) {
             }
             if (x == "nearest") {
                 if (rect.left < bounding.left) {
-                    moveX = -(bounding.left - rect.left + xMargin);
+                    moveX = rect.left - (bounding.left + xMargin);
                     if (side > 0 && rect.right > bounding.right + moveX)
-                        moveX = rect.right - bounding.right + moveX + xMargin;
+                        moveX = rect.right - bounding.right + xMargin;
                 }
                 else if (rect.right > bounding.right) {
                     moveX = rect.right - bounding.right + xMargin;
                     if (side < 0 && rect.left < bounding.left + moveX)
-                        moveX = -(bounding.left + moveX - rect.left + xMargin);
+                        moveX = rect.left - (bounding.left + xMargin);
                 }
             }
             else {
@@ -4365,6 +4442,10 @@ function scrollRectIntoView(dom, rect, side, x, y, xMargin, yMargin, ltr) {
             }
             if (top)
                 break;
+            if (rect.top < bounding.top || rect.bottom > bounding.bottom ||
+                rect.left < bounding.left || rect.right > bounding.right)
+                rect = { left: Math.max(rect.left, bounding.left), right: Math.min(rect.right, bounding.right),
+                    top: Math.max(rect.top, bounding.top), bottom: Math.min(rect.bottom, bounding.bottom) };
             cur = cur.assignedSlot || cur.parentNode;
         }
         else if (cur.nodeType == 11) { // A shadow root
@@ -4375,15 +4456,17 @@ function scrollRectIntoView(dom, rect, side, x, y, xMargin, yMargin, ltr) {
         }
     }
 }
-function scrollableParent(dom) {
-    let doc = dom.ownerDocument;
+function scrollableParents(dom) {
+    let doc = dom.ownerDocument, x, y;
     for (let cur = dom.parentNode; cur;) {
-        if (cur == doc.body) {
+        if (cur == doc.body || (x && y)) {
             break;
         }
         else if (cur.nodeType == 1) {
-            if (cur.scrollHeight > cur.clientHeight || cur.scrollWidth > cur.clientWidth)
-                return cur;
+            if (!y && cur.scrollHeight > cur.clientHeight)
+                y = cur;
+            if (!x && cur.scrollWidth > cur.clientWidth)
+                x = cur;
             cur = cur.assignedSlot || cur.parentNode;
         }
         else if (cur.nodeType == 11) {
@@ -4393,7 +4476,7 @@ function scrollableParent(dom) {
             break;
         }
     }
-    return null;
+    return { x, y };
 }
 class DOMSelectionState {
     constructor() {
@@ -4456,8 +4539,10 @@ function textRange(node, from, to = from) {
     range.setStart(node, from);
     return range;
 }
-function dispatchKey(elt, name, code) {
+function dispatchKey(elt, name, code, mods) {
     let options = { key: name, code: name, keyCode: code, which: code, cancelable: true };
+    if (mods)
+        ({ altKey: options.altKey, ctrlKey: options.ctrlKey, shiftKey: options.shiftKey, metaKey: options.metaKey } = mods);
     let down = new KeyboardEvent("keydown", options);
     down.synthetic = true;
     elt.dispatchEvent(down);
@@ -4507,6 +4592,46 @@ function atElementStart(doc, selection) {
 }
 function isScrolledToBottom(elt) {
     return elt.scrollTop > Math.max(1, elt.scrollHeight - elt.clientHeight - 4);
+}
+function textNodeBefore(startNode, startOffset) {
+    for (let node = startNode, offset = startOffset;;) {
+        if (node.nodeType == 3 && offset > 0) {
+            return { node: node, offset: offset };
+        }
+        else if (node.nodeType == 1 && offset > 0) {
+            if (node.contentEditable == "false")
+                return null;
+            node = node.childNodes[offset - 1];
+            offset = maxOffset(node);
+        }
+        else if (node.parentNode && !isBlockElement(node)) {
+            offset = domIndex(node);
+            node = node.parentNode;
+        }
+        else {
+            return null;
+        }
+    }
+}
+function textNodeAfter(startNode, startOffset) {
+    for (let node = startNode, offset = startOffset;;) {
+        if (node.nodeType == 3 && offset < node.nodeValue.length) {
+            return { node: node, offset: offset };
+        }
+        else if (node.nodeType == 1 && offset < node.childNodes.length) {
+            if (node.contentEditable == "false")
+                return null;
+            node = node.childNodes[offset];
+            offset = 0;
+        }
+        else if (node.parentNode && !isBlockElement(node)) {
+            offset = domIndex(node) + 1;
+            node = node.parentNode;
+        }
+        else {
+            return null;
+        }
+    }
 }
 
 class DOMPos {
@@ -4688,7 +4813,10 @@ class ContentView {
             if (child.parent == this && children.indexOf(child) < 0)
                 child.destroy();
         }
-        this.children.splice(from, to - from, ...children);
+        if (children.length < 250)
+            this.children.splice(from, to - from, ...children);
+        else
+            this.children = [].concat(this.children.slice(0, from), children, this.children.slice(to));
         for (let i = 0; i < children.length; i++)
             children[i].setParent(this);
     }
@@ -4868,7 +4996,7 @@ var browser = {
     android: /*@__PURE__*//Android\b/.test(nav.userAgent),
     webkit,
     safari,
-    webkit_version: webkit ? +(/*@__PURE__*//\bAppleWebKit\/(\d+)/.exec(navigator.userAgent) || [0, 0])[1] : 0,
+    webkit_version: webkit ? +(/*@__PURE__*//\bAppleWebKit\/(\d+)/.exec(nav.userAgent) || [0, 0])[1] : 0,
     tabSize: doc.documentElement.style.tabSize != null ? "tab-size" : "-moz-tab-size"
 };
 
@@ -5045,7 +5173,8 @@ class WidgetView extends ContentView {
                 this.prevWidget.destroy(this.dom);
             this.prevWidget = null;
             this.setDOM(this.widget.toDOM(view));
-            this.dom.contentEditable = "false";
+            if (!this.widget.editable)
+                this.dom.contentEditable = "false";
         }
     }
     getSide() { return this.side; }
@@ -5191,7 +5320,7 @@ function coordsInChildren(view, pos, side) {
                 if (child.children.length) {
                     scan(child, pos - off);
                 }
-                else if ((!after || after.isHidden && side > 0) &&
+                else if ((!after || after.isHidden && (side > 0 || onSameLine(after, child))) &&
                     (end > pos || off == end && child.getSide() > 0)) {
                     after = child;
                     afterPos = pos - off;
@@ -5217,6 +5346,10 @@ function fallbackRect(view) {
     let rects = clientRectsFor(last);
     return rects[rects.length - 1] || null;
 }
+function onSameLine(a, b) {
+    let posA = a.coordsAt(0, 1), posB = b.coordsAt(0, 1);
+    return posA && posB && posB.top < posA.bottom;
+}
 
 function combineAttrs(source, target) {
     for (let name in source) {
@@ -5229,14 +5362,14 @@ function combineAttrs(source, target) {
     }
     return target;
 }
-const noAttrs = /*@__PURE__*/Object.create(null);
+const noAttrs$1 = /*@__PURE__*/Object.create(null);
 function attrsEq(a, b, ignore) {
     if (a == b)
         return true;
     if (!a)
-        a = noAttrs;
+        a = noAttrs$1;
     if (!b)
-        b = noAttrs;
+        b = noAttrs$1;
     let keysA = Object.keys(a), keysB = Object.keys(b);
     if (keysA.length - (ignore && keysA.indexOf(ignore) > -1 ? 1 : 0) !=
         keysB.length - (ignore && keysB.indexOf(ignore) > -1 ? 1 : 0))
@@ -5276,236 +5409,6 @@ function getAttrs(dom) {
         attrs[attr.name] = attr.value;
     }
     return attrs;
-}
-
-class LineView extends ContentView {
-    constructor() {
-        super(...arguments);
-        this.children = [];
-        this.length = 0;
-        this.prevAttrs = undefined;
-        this.attrs = null;
-        this.breakAfter = 0;
-    }
-    // Consumes source
-    merge(from, to, source, hasStart, openStart, openEnd) {
-        if (source) {
-            if (!(source instanceof LineView))
-                return false;
-            if (!this.dom)
-                source.transferDOM(this); // Reuse source.dom when appropriate
-        }
-        if (hasStart)
-            this.setDeco(source ? source.attrs : null);
-        mergeChildrenInto(this, from, to, source ? source.children.slice() : [], openStart, openEnd);
-        return true;
-    }
-    split(at) {
-        let end = new LineView;
-        end.breakAfter = this.breakAfter;
-        if (this.length == 0)
-            return end;
-        let { i, off } = this.childPos(at);
-        if (off) {
-            end.append(this.children[i].split(off), 0);
-            this.children[i].merge(off, this.children[i].length, null, false, 0, 0);
-            i++;
-        }
-        for (let j = i; j < this.children.length; j++)
-            end.append(this.children[j], 0);
-        while (i > 0 && this.children[i - 1].length == 0)
-            this.children[--i].destroy();
-        this.children.length = i;
-        this.markDirty();
-        this.length = at;
-        return end;
-    }
-    transferDOM(other) {
-        if (!this.dom)
-            return;
-        this.markDirty();
-        other.setDOM(this.dom);
-        other.prevAttrs = this.prevAttrs === undefined ? this.attrs : this.prevAttrs;
-        this.prevAttrs = undefined;
-        this.dom = null;
-    }
-    setDeco(attrs) {
-        if (!attrsEq(this.attrs, attrs)) {
-            if (this.dom) {
-                this.prevAttrs = this.attrs;
-                this.markDirty();
-            }
-            this.attrs = attrs;
-        }
-    }
-    append(child, openStart) {
-        joinInlineInto(this, child, openStart);
-    }
-    // Only called when building a line view in ContentBuilder
-    addLineDeco(deco) {
-        let attrs = deco.spec.attributes, cls = deco.spec.class;
-        if (attrs)
-            this.attrs = combineAttrs(attrs, this.attrs || {});
-        if (cls)
-            this.attrs = combineAttrs({ class: cls }, this.attrs || {});
-    }
-    domAtPos(pos) {
-        return inlineDOMAtPos(this, pos);
-    }
-    reuseDOM(node) {
-        if (node.nodeName == "DIV") {
-            this.setDOM(node);
-            this.flags |= 4 /* ViewFlag.AttrsDirty */ | 2 /* ViewFlag.NodeDirty */;
-        }
-    }
-    sync(view, track) {
-        var _a;
-        if (!this.dom) {
-            this.setDOM(document.createElement("div"));
-            this.dom.className = "cm-line";
-            this.prevAttrs = this.attrs ? null : undefined;
-        }
-        else if (this.flags & 4 /* ViewFlag.AttrsDirty */) {
-            clearAttributes(this.dom);
-            this.dom.className = "cm-line";
-            this.prevAttrs = this.attrs ? null : undefined;
-        }
-        if (this.prevAttrs !== undefined) {
-            updateAttrs(this.dom, this.prevAttrs, this.attrs);
-            this.dom.classList.add("cm-line");
-            this.prevAttrs = undefined;
-        }
-        super.sync(view, track);
-        let last = this.dom.lastChild;
-        while (last && ContentView.get(last) instanceof MarkView)
-            last = last.lastChild;
-        if (!last || !this.length ||
-            last.nodeName != "BR" && ((_a = ContentView.get(last)) === null || _a === void 0 ? void 0 : _a.isEditable) == false &&
-                (!browser.ios || !this.children.some(ch => ch instanceof TextView))) {
-            let hack = document.createElement("BR");
-            hack.cmIgnore = true;
-            this.dom.appendChild(hack);
-        }
-    }
-    measureTextSize() {
-        if (this.children.length == 0 || this.length > 20)
-            return null;
-        let totalWidth = 0, textHeight;
-        for (let child of this.children) {
-            if (!(child instanceof TextView) || /[^ -~]/.test(child.text))
-                return null;
-            let rects = clientRectsFor(child.dom);
-            if (rects.length != 1)
-                return null;
-            totalWidth += rects[0].width;
-            textHeight = rects[0].height;
-        }
-        return !totalWidth ? null : {
-            lineHeight: this.dom.getBoundingClientRect().height,
-            charWidth: totalWidth / this.length,
-            textHeight
-        };
-    }
-    coordsAt(pos, side) {
-        let rect = coordsInChildren(this, pos, side);
-        // Correct rectangle height for empty lines when the returned
-        // height is larger than the text height.
-        if (!this.children.length && rect && this.parent) {
-            let { heightOracle } = this.parent.view.viewState, height = rect.bottom - rect.top;
-            if (Math.abs(height - heightOracle.lineHeight) < 2 && heightOracle.textHeight < height) {
-                let dist = (height - heightOracle.textHeight) / 2;
-                return { top: rect.top + dist, bottom: rect.bottom - dist, left: rect.left, right: rect.left };
-            }
-        }
-        return rect;
-    }
-    become(_other) { return false; }
-    covers() { return true; }
-    static find(docView, pos) {
-        for (let i = 0, off = 0; i < docView.children.length; i++) {
-            let block = docView.children[i], end = off + block.length;
-            if (end >= pos) {
-                if (block instanceof LineView)
-                    return block;
-                if (end > pos)
-                    break;
-            }
-            off = end + block.breakAfter;
-        }
-        return null;
-    }
-}
-class BlockWidgetView extends ContentView {
-    constructor(widget, length, deco) {
-        super();
-        this.widget = widget;
-        this.length = length;
-        this.deco = deco;
-        this.breakAfter = 0;
-        this.prevWidget = null;
-    }
-    merge(from, to, source, _takeDeco, openStart, openEnd) {
-        if (source && (!(source instanceof BlockWidgetView) || !this.widget.compare(source.widget) ||
-            from > 0 && openStart <= 0 || to < this.length && openEnd <= 0))
-            return false;
-        this.length = from + (source ? source.length : 0) + (this.length - to);
-        return true;
-    }
-    domAtPos(pos) {
-        return pos == 0 ? DOMPos.before(this.dom) : DOMPos.after(this.dom, pos == this.length);
-    }
-    split(at) {
-        let len = this.length - at;
-        this.length = at;
-        let end = new BlockWidgetView(this.widget, len, this.deco);
-        end.breakAfter = this.breakAfter;
-        return end;
-    }
-    get children() { return noChildren; }
-    sync(view) {
-        if (!this.dom || !this.widget.updateDOM(this.dom, view)) {
-            if (this.dom && this.prevWidget)
-                this.prevWidget.destroy(this.dom);
-            this.prevWidget = null;
-            this.setDOM(this.widget.toDOM(view));
-            this.dom.contentEditable = "false";
-        }
-    }
-    get overrideDOMText() {
-        return this.parent ? this.parent.view.state.doc.slice(this.posAtStart, this.posAtEnd) : Text.empty;
-    }
-    domBoundsAround() { return null; }
-    become(other) {
-        if (other instanceof BlockWidgetView &&
-            other.widget.constructor == this.widget.constructor) {
-            if (!other.widget.compare(this.widget))
-                this.markDirty(true);
-            if (this.dom && !this.prevWidget)
-                this.prevWidget = this.widget;
-            this.widget = other.widget;
-            this.length = other.length;
-            this.deco = other.deco;
-            this.breakAfter = other.breakAfter;
-            return true;
-        }
-        return false;
-    }
-    ignoreMutation() { return true; }
-    ignoreEvent(event) { return this.widget.ignoreEvent(event); }
-    get isEditable() { return false; }
-    get isWidget() { return true; }
-    coordsAt(pos, side) {
-        return this.widget.coordsAt(this.dom, pos, side);
-    }
-    destroy() {
-        super.destroy();
-        if (this.dom)
-            this.widget.destroy(this.dom);
-    }
-    covers(side) {
-        let { startSide, endSide } = this.deco;
-        return startSide == endSide ? false : side < 0 ? startSide < 0 : endSide > 0;
-    }
 }
 
 /**
@@ -5572,6 +5475,10 @@ class WidgetType {
     @internal
     */
     get isHidden() { return false; }
+    /**
+    @internal
+    */
+    get editable() { return false; }
     /**
     This is called when the an instance of the widget is removed
     from the editor view.
@@ -5788,6 +5695,265 @@ function addRange(from, to, ranges, margin = 0) {
         ranges.push(from, to);
 }
 
+class LineView extends ContentView {
+    constructor() {
+        super(...arguments);
+        this.children = [];
+        this.length = 0;
+        this.prevAttrs = undefined;
+        this.attrs = null;
+        this.breakAfter = 0;
+    }
+    // Consumes source
+    merge(from, to, source, hasStart, openStart, openEnd) {
+        if (source) {
+            if (!(source instanceof LineView))
+                return false;
+            if (!this.dom)
+                source.transferDOM(this); // Reuse source.dom when appropriate
+        }
+        if (hasStart)
+            this.setDeco(source ? source.attrs : null);
+        mergeChildrenInto(this, from, to, source ? source.children.slice() : [], openStart, openEnd);
+        return true;
+    }
+    split(at) {
+        let end = new LineView;
+        end.breakAfter = this.breakAfter;
+        if (this.length == 0)
+            return end;
+        let { i, off } = this.childPos(at);
+        if (off) {
+            end.append(this.children[i].split(off), 0);
+            this.children[i].merge(off, this.children[i].length, null, false, 0, 0);
+            i++;
+        }
+        for (let j = i; j < this.children.length; j++)
+            end.append(this.children[j], 0);
+        while (i > 0 && this.children[i - 1].length == 0)
+            this.children[--i].destroy();
+        this.children.length = i;
+        this.markDirty();
+        this.length = at;
+        return end;
+    }
+    transferDOM(other) {
+        if (!this.dom)
+            return;
+        this.markDirty();
+        other.setDOM(this.dom);
+        other.prevAttrs = this.prevAttrs === undefined ? this.attrs : this.prevAttrs;
+        this.prevAttrs = undefined;
+        this.dom = null;
+    }
+    setDeco(attrs) {
+        if (!attrsEq(this.attrs, attrs)) {
+            if (this.dom) {
+                this.prevAttrs = this.attrs;
+                this.markDirty();
+            }
+            this.attrs = attrs;
+        }
+    }
+    append(child, openStart) {
+        joinInlineInto(this, child, openStart);
+    }
+    // Only called when building a line view in ContentBuilder
+    addLineDeco(deco) {
+        let attrs = deco.spec.attributes, cls = deco.spec.class;
+        if (attrs)
+            this.attrs = combineAttrs(attrs, this.attrs || {});
+        if (cls)
+            this.attrs = combineAttrs({ class: cls }, this.attrs || {});
+    }
+    domAtPos(pos) {
+        return inlineDOMAtPos(this, pos);
+    }
+    reuseDOM(node) {
+        if (node.nodeName == "DIV") {
+            this.setDOM(node);
+            this.flags |= 4 /* ViewFlag.AttrsDirty */ | 2 /* ViewFlag.NodeDirty */;
+        }
+    }
+    sync(view, track) {
+        var _a;
+        if (!this.dom) {
+            this.setDOM(document.createElement("div"));
+            this.dom.className = "cm-line";
+            this.prevAttrs = this.attrs ? null : undefined;
+        }
+        else if (this.flags & 4 /* ViewFlag.AttrsDirty */) {
+            clearAttributes(this.dom);
+            this.dom.className = "cm-line";
+            this.prevAttrs = this.attrs ? null : undefined;
+        }
+        if (this.prevAttrs !== undefined) {
+            updateAttrs(this.dom, this.prevAttrs, this.attrs);
+            this.dom.classList.add("cm-line");
+            this.prevAttrs = undefined;
+        }
+        super.sync(view, track);
+        let last = this.dom.lastChild;
+        while (last && ContentView.get(last) instanceof MarkView)
+            last = last.lastChild;
+        if (!last || !this.length ||
+            last.nodeName != "BR" && ((_a = ContentView.get(last)) === null || _a === void 0 ? void 0 : _a.isEditable) == false &&
+                (!browser.ios || !this.children.some(ch => ch instanceof TextView))) {
+            let hack = document.createElement("BR");
+            hack.cmIgnore = true;
+            this.dom.appendChild(hack);
+        }
+    }
+    measureTextSize() {
+        if (this.children.length == 0 || this.length > 20)
+            return null;
+        let totalWidth = 0, textHeight;
+        for (let child of this.children) {
+            if (!(child instanceof TextView) || /[^ -~]/.test(child.text))
+                return null;
+            let rects = clientRectsFor(child.dom);
+            if (rects.length != 1)
+                return null;
+            totalWidth += rects[0].width;
+            textHeight = rects[0].height;
+        }
+        return !totalWidth ? null : {
+            lineHeight: this.dom.getBoundingClientRect().height,
+            charWidth: totalWidth / this.length,
+            textHeight
+        };
+    }
+    coordsAt(pos, side) {
+        let rect = coordsInChildren(this, pos, side);
+        // Correct rectangle height for empty lines when the returned
+        // height is larger than the text height.
+        if (!this.children.length && rect && this.parent) {
+            let { heightOracle } = this.parent.view.viewState, height = rect.bottom - rect.top;
+            if (Math.abs(height - heightOracle.lineHeight) < 2 && heightOracle.textHeight < height) {
+                let dist = (height - heightOracle.textHeight) / 2;
+                return { top: rect.top + dist, bottom: rect.bottom - dist, left: rect.left, right: rect.left };
+            }
+        }
+        return rect;
+    }
+    become(other) {
+        return other instanceof LineView && this.children.length == 0 && other.children.length == 0 &&
+            attrsEq(this.attrs, other.attrs) && this.breakAfter == other.breakAfter;
+    }
+    covers() { return true; }
+    static find(docView, pos) {
+        for (let i = 0, off = 0; i < docView.children.length; i++) {
+            let block = docView.children[i], end = off + block.length;
+            if (end >= pos) {
+                if (block instanceof LineView)
+                    return block;
+                if (end > pos)
+                    break;
+            }
+            off = end + block.breakAfter;
+        }
+        return null;
+    }
+}
+class BlockWidgetView extends ContentView {
+    constructor(widget, length, deco) {
+        super();
+        this.widget = widget;
+        this.length = length;
+        this.deco = deco;
+        this.breakAfter = 0;
+        this.prevWidget = null;
+    }
+    merge(from, to, source, _takeDeco, openStart, openEnd) {
+        if (source && (!(source instanceof BlockWidgetView) || !this.widget.compare(source.widget) ||
+            from > 0 && openStart <= 0 || to < this.length && openEnd <= 0))
+            return false;
+        this.length = from + (source ? source.length : 0) + (this.length - to);
+        return true;
+    }
+    domAtPos(pos) {
+        return pos == 0 ? DOMPos.before(this.dom) : DOMPos.after(this.dom, pos == this.length);
+    }
+    split(at) {
+        let len = this.length - at;
+        this.length = at;
+        let end = new BlockWidgetView(this.widget, len, this.deco);
+        end.breakAfter = this.breakAfter;
+        return end;
+    }
+    get children() { return noChildren; }
+    sync(view) {
+        if (!this.dom || !this.widget.updateDOM(this.dom, view)) {
+            if (this.dom && this.prevWidget)
+                this.prevWidget.destroy(this.dom);
+            this.prevWidget = null;
+            this.setDOM(this.widget.toDOM(view));
+            if (!this.widget.editable)
+                this.dom.contentEditable = "false";
+        }
+    }
+    get overrideDOMText() {
+        return this.parent ? this.parent.view.state.doc.slice(this.posAtStart, this.posAtEnd) : Text.empty;
+    }
+    domBoundsAround() { return null; }
+    become(other) {
+        if (other instanceof BlockWidgetView &&
+            other.widget.constructor == this.widget.constructor) {
+            if (!other.widget.compare(this.widget))
+                this.markDirty(true);
+            if (this.dom && !this.prevWidget)
+                this.prevWidget = this.widget;
+            this.widget = other.widget;
+            this.length = other.length;
+            this.deco = other.deco;
+            this.breakAfter = other.breakAfter;
+            return true;
+        }
+        return false;
+    }
+    ignoreMutation() { return true; }
+    ignoreEvent(event) { return this.widget.ignoreEvent(event); }
+    get isEditable() { return false; }
+    get isWidget() { return true; }
+    coordsAt(pos, side) {
+        let custom = this.widget.coordsAt(this.dom, pos, side);
+        if (custom)
+            return custom;
+        if (this.widget instanceof BlockGapWidget)
+            return null;
+        return flattenRect(this.dom.getBoundingClientRect(), this.length ? pos == 0 : side <= 0);
+    }
+    destroy() {
+        super.destroy();
+        if (this.dom)
+            this.widget.destroy(this.dom);
+    }
+    covers(side) {
+        let { startSide, endSide } = this.deco;
+        return startSide == endSide ? false : side < 0 ? startSide < 0 : endSide > 0;
+    }
+}
+class BlockGapWidget extends WidgetType {
+    constructor(height) {
+        super();
+        this.height = height;
+    }
+    toDOM() {
+        let elt = document.createElement("div");
+        elt.className = "cm-gap";
+        this.updateDOM(elt);
+        return elt;
+    }
+    eq(other) { return other.height == this.height; }
+    updateDOM(elt) {
+        elt.style.height = this.height + "px";
+        return true;
+    }
+    get editable() { return true; }
+    get estimatedHeight() { return this.height; }
+    ignoreEvent() { return false; }
+}
+
 class ContentBuilder {
     constructor(doc, pos, end, disallowBlockEffectsFor) {
         this.doc = doc;
@@ -5893,10 +6059,10 @@ class ContentBuilder {
             if (deco.block) {
                 if (deco.startSide > 0 && !this.posCovered())
                     this.getLine();
-                this.addBlockWidget(new BlockWidgetView(deco.widget || new NullWidget("div"), len, deco));
+                this.addBlockWidget(new BlockWidgetView(deco.widget || NullWidget.block, len, deco));
             }
             else {
-                let view = WidgetView.create(deco.widget || new NullWidget("span"), len, len ? 0 : deco.startSide);
+                let view = WidgetView.create(deco.widget || NullWidget.inline, len, len ? 0 : deco.startSide);
                 let cursorBefore = this.atCursorPos && !view.isEditable && openStart <= active.length &&
                     (from < to || deco.startSide > 0);
                 let cursorAfter = !view.isEditable && (from < to || openStart > active.length || deco.startSide <= 0);
@@ -5957,373 +6123,8 @@ class NullWidget extends WidgetType {
     updateDOM(elt) { return elt.nodeName.toLowerCase() == this.tag; }
     get isHidden() { return true; }
 }
-
-const clickAddsSelectionRange = /*@__PURE__*/Facet.define();
-const dragMovesSelection$1 = /*@__PURE__*/Facet.define();
-const mouseSelectionStyle = /*@__PURE__*/Facet.define();
-const exceptionSink = /*@__PURE__*/Facet.define();
-const updateListener = /*@__PURE__*/Facet.define();
-const inputHandler = /*@__PURE__*/Facet.define();
-const focusChangeEffect = /*@__PURE__*/Facet.define();
-const perLineTextDirection = /*@__PURE__*/Facet.define({
-    combine: values => values.some(x => x)
-});
-const nativeSelectionHidden = /*@__PURE__*/Facet.define({
-    combine: values => values.some(x => x)
-});
-class ScrollTarget {
-    constructor(range, y = "nearest", x = "nearest", yMargin = 5, xMargin = 5, 
-    // This data structure is abused to also store precise scroll
-    // snapshots, instead of a `scrollIntoView` request. When this
-    // flag is `true`, `range` points at a position in the reference
-    // line, `yMargin` holds the difference between the top of that
-    // line and the top of the editor, and `xMargin` holds the
-    // editor's `scrollLeft`.
-    isSnapshot = false) {
-        this.range = range;
-        this.y = y;
-        this.x = x;
-        this.yMargin = yMargin;
-        this.xMargin = xMargin;
-        this.isSnapshot = isSnapshot;
-    }
-    map(changes) {
-        return changes.empty ? this :
-            new ScrollTarget(this.range.map(changes), this.y, this.x, this.yMargin, this.xMargin, this.isSnapshot);
-    }
-    clip(state) {
-        return this.range.to <= state.doc.length ? this :
-            new ScrollTarget(EditorSelection.cursor(state.doc.length), this.y, this.x, this.yMargin, this.xMargin, this.isSnapshot);
-    }
-}
-const scrollIntoView = /*@__PURE__*/StateEffect.define({ map: (t, ch) => t.map(ch) });
-/**
-Log or report an unhandled exception in client code. Should
-probably only be used by extension code that allows client code to
-provide functions, and calls those functions in a context where an
-exception can't be propagated to calling code in a reasonable way
-(for example when in an event handler).
-
-Either calls a handler registered with
-[`EditorView.exceptionSink`](https://codemirror.net/6/docs/ref/#view.EditorView^exceptionSink),
-`window.onerror`, if defined, or `console.error` (in which case
-it'll pass `context`, when given, as first argument).
-*/
-function logException(state, exception, context) {
-    let handler = state.facet(exceptionSink);
-    if (handler.length)
-        handler[0](exception);
-    else if (window.onerror)
-        window.onerror(String(exception), context, undefined, undefined, exception);
-    else if (context)
-        console.error(context + ":", exception);
-    else
-        console.error(exception);
-}
-const editable = /*@__PURE__*/Facet.define({ combine: values => values.length ? values[0] : true });
-let nextPluginID = 0;
-const viewPlugin = /*@__PURE__*/Facet.define();
-/**
-View plugins associate stateful values with a view. They can
-influence the way the content is drawn, and are notified of things
-that happen in the view.
-*/
-class ViewPlugin {
-    constructor(
-    /**
-    @internal
-    */
-    id, 
-    /**
-    @internal
-    */
-    create, 
-    /**
-    @internal
-    */
-    domEventHandlers, 
-    /**
-    @internal
-    */
-    domEventObservers, buildExtensions) {
-        this.id = id;
-        this.create = create;
-        this.domEventHandlers = domEventHandlers;
-        this.domEventObservers = domEventObservers;
-        this.extension = buildExtensions(this);
-    }
-    /**
-    Define a plugin from a constructor function that creates the
-    plugin's value, given an editor view.
-    */
-    static define(create, spec) {
-        const { eventHandlers, eventObservers, provide, decorations: deco } = spec || {};
-        return new ViewPlugin(nextPluginID++, create, eventHandlers, eventObservers, plugin => {
-            let ext = [viewPlugin.of(plugin)];
-            if (deco)
-                ext.push(decorations.of(view => {
-                    let pluginInst = view.plugin(plugin);
-                    return pluginInst ? deco(pluginInst) : Decoration.none;
-                }));
-            if (provide)
-                ext.push(provide(plugin));
-            return ext;
-        });
-    }
-    /**
-    Create a plugin for a class whose constructor takes a single
-    editor view as argument.
-    */
-    static fromClass(cls, spec) {
-        return ViewPlugin.define(view => new cls(view), spec);
-    }
-}
-class PluginInstance {
-    constructor(spec) {
-        this.spec = spec;
-        // When starting an update, all plugins have this field set to the
-        // update object, indicating they need to be updated. When finished
-        // updating, it is set to `false`. Retrieving a plugin that needs to
-        // be updated with `view.plugin` forces an eager update.
-        this.mustUpdate = null;
-        // This is null when the plugin is initially created, but
-        // initialized on the first update.
-        this.value = null;
-    }
-    update(view) {
-        if (!this.value) {
-            if (this.spec) {
-                try {
-                    this.value = this.spec.create(view);
-                }
-                catch (e) {
-                    logException(view.state, e, "CodeMirror plugin crashed");
-                    this.deactivate();
-                }
-            }
-        }
-        else if (this.mustUpdate) {
-            let update = this.mustUpdate;
-            this.mustUpdate = null;
-            if (this.value.update) {
-                try {
-                    this.value.update(update);
-                }
-                catch (e) {
-                    logException(update.state, e, "CodeMirror plugin crashed");
-                    if (this.value.destroy)
-                        try {
-                            this.value.destroy();
-                        }
-                        catch (_) { }
-                    this.deactivate();
-                }
-            }
-        }
-        return this;
-    }
-    destroy(view) {
-        var _a;
-        if ((_a = this.value) === null || _a === void 0 ? void 0 : _a.destroy) {
-            try {
-                this.value.destroy();
-            }
-            catch (e) {
-                logException(view.state, e, "CodeMirror plugin crashed");
-            }
-        }
-    }
-    deactivate() {
-        this.spec = this.value = null;
-    }
-}
-const editorAttributes = /*@__PURE__*/Facet.define();
-const contentAttributes = /*@__PURE__*/Facet.define();
-// Provide decorations
-const decorations = /*@__PURE__*/Facet.define();
-const atomicRanges = /*@__PURE__*/Facet.define();
-const bidiIsolatedRanges = /*@__PURE__*/Facet.define();
-function getIsolatedRanges(view, from, to) {
-    let isolates = view.state.facet(bidiIsolatedRanges);
-    if (!isolates.length)
-        return isolates;
-    let sets = isolates.map(i => i instanceof Function ? i(view) : i);
-    let result = [];
-    RangeSet.spans(sets, from, to, {
-        point() { },
-        span(from, to, active, open) {
-            let level = result;
-            for (let i = active.length - 1; i >= 0; i--, open--) {
-                let iso = active[i].spec.bidiIsolate, update;
-                if (iso == null)
-                    continue;
-                if (open > 0 && level.length &&
-                    (update = level[level.length - 1]).to == from && update.direction == iso) {
-                    update.to = to;
-                    level = update.inner;
-                }
-                else {
-                    let add = { from, to, direction: iso, inner: [] };
-                    level.push(add);
-                    level = add.inner;
-                }
-            }
-        }
-    });
-    return result;
-}
-const scrollMargins = /*@__PURE__*/Facet.define();
-function getScrollMargins(view) {
-    let left = 0, right = 0, top = 0, bottom = 0;
-    for (let source of view.state.facet(scrollMargins)) {
-        let m = source(view);
-        if (m) {
-            if (m.left != null)
-                left = Math.max(left, m.left);
-            if (m.right != null)
-                right = Math.max(right, m.right);
-            if (m.top != null)
-                top = Math.max(top, m.top);
-            if (m.bottom != null)
-                bottom = Math.max(bottom, m.bottom);
-        }
-    }
-    return { left, right, top, bottom };
-}
-const styleModule = /*@__PURE__*/Facet.define();
-class ChangedRange {
-    constructor(fromA, toA, fromB, toB) {
-        this.fromA = fromA;
-        this.toA = toA;
-        this.fromB = fromB;
-        this.toB = toB;
-    }
-    join(other) {
-        return new ChangedRange(Math.min(this.fromA, other.fromA), Math.max(this.toA, other.toA), Math.min(this.fromB, other.fromB), Math.max(this.toB, other.toB));
-    }
-    addToSet(set) {
-        let i = set.length, me = this;
-        for (; i > 0; i--) {
-            let range = set[i - 1];
-            if (range.fromA > me.toA)
-                continue;
-            if (range.toA < me.fromA)
-                break;
-            me = me.join(range);
-            set.splice(i - 1, 1);
-        }
-        set.splice(i, 0, me);
-        return set;
-    }
-    static extendWithRanges(diff, ranges) {
-        if (ranges.length == 0)
-            return diff;
-        let result = [];
-        for (let dI = 0, rI = 0, posA = 0, posB = 0;; dI++) {
-            let next = dI == diff.length ? null : diff[dI], off = posA - posB;
-            let end = next ? next.fromB : 1e9;
-            while (rI < ranges.length && ranges[rI] < end) {
-                let from = ranges[rI], to = ranges[rI + 1];
-                let fromB = Math.max(posB, from), toB = Math.min(end, to);
-                if (fromB <= toB)
-                    new ChangedRange(fromB + off, toB + off, fromB, toB).addToSet(result);
-                if (to > end)
-                    break;
-                else
-                    rI += 2;
-            }
-            if (!next)
-                return result;
-            new ChangedRange(next.fromA, next.toA, next.fromB, next.toB).addToSet(result);
-            posA = next.toA;
-            posB = next.toB;
-        }
-    }
-}
-/**
-View [plugins](https://codemirror.net/6/docs/ref/#view.ViewPlugin) are given instances of this
-class, which describe what happened, whenever the view is updated.
-*/
-class ViewUpdate {
-    constructor(
-    /**
-    The editor view that the update is associated with.
-    */
-    view, 
-    /**
-    The new editor state.
-    */
-    state, 
-    /**
-    The transactions involved in the update. May be empty.
-    */
-    transactions) {
-        this.view = view;
-        this.state = state;
-        this.transactions = transactions;
-        /**
-        @internal
-        */
-        this.flags = 0;
-        this.startState = view.state;
-        this.changes = ChangeSet.empty(this.startState.doc.length);
-        for (let tr of transactions)
-            this.changes = this.changes.compose(tr.changes);
-        let changedRanges = [];
-        this.changes.iterChangedRanges((fromA, toA, fromB, toB) => changedRanges.push(new ChangedRange(fromA, toA, fromB, toB)));
-        this.changedRanges = changedRanges;
-    }
-    /**
-    @internal
-    */
-    static create(view, state, transactions) {
-        return new ViewUpdate(view, state, transactions);
-    }
-    /**
-    Tells you whether the [viewport](https://codemirror.net/6/docs/ref/#view.EditorView.viewport) or
-    [visible ranges](https://codemirror.net/6/docs/ref/#view.EditorView.visibleRanges) changed in this
-    update.
-    */
-    get viewportChanged() {
-        return (this.flags & 4 /* UpdateFlag.Viewport */) > 0;
-    }
-    /**
-    Indicates whether the height of a block element in the editor
-    changed in this update.
-    */
-    get heightChanged() {
-        return (this.flags & 2 /* UpdateFlag.Height */) > 0;
-    }
-    /**
-    Returns true when the document was modified or the size of the
-    editor, or elements within the editor, changed.
-    */
-    get geometryChanged() {
-        return this.docChanged || (this.flags & (8 /* UpdateFlag.Geometry */ | 2 /* UpdateFlag.Height */)) > 0;
-    }
-    /**
-    True when this update indicates a focus change.
-    */
-    get focusChanged() {
-        return (this.flags & 1 /* UpdateFlag.Focus */) > 0;
-    }
-    /**
-    Whether the document changed in this update.
-    */
-    get docChanged() {
-        return !this.changes.empty;
-    }
-    /**
-    Whether the selection was explicitly set in this update.
-    */
-    get selectionSet() {
-        return this.transactions.some(tr => tr.selection);
-    }
-    /**
-    @internal
-    */
-    get empty() { return this.flags == 0 && this.transactions.length == 0; }
-}
+NullWidget.inline = /*@__PURE__*/new NullWidget("span");
+NullWidget.block = /*@__PURE__*/new NullWidget("div");
 
 /**
 Used to indicate [text direction](https://codemirror.net/6/docs/ref/#view.EditorView.textDirection).
@@ -6407,6 +6208,10 @@ class BidiSpan {
     @internal
     */
     side(end, dir) { return (this.dir == dir) == end ? this.to : this.from; }
+    /**
+    @internal
+    */
+    forward(forward, dir) { return forward == (this.dir == dir); }
     /**
     @internal
     */
@@ -6757,45 +6562,433 @@ function trivialOrder(length) {
     return [new BidiSpan(0, length, 0)];
 }
 let movedOver = "";
+// This implementation moves strictly visually, without concern for a
+// traversal visiting every logical position in the string. It will
+// still do so for simple input, but situations like multiple isolates
+// with the same level next to each other, or text going against the
+// main dir at the end of the line, will make some positions
+// unreachable with this motion. Each visible cursor position will
+// correspond to the lower-level bidi span that touches it.
+//
+// The alternative would be to solve an order globally for a given
+// line, making sure that it includes every position, but that would
+// require associating non-canonical (higher bidi span level)
+// positions with a given visual position, which is likely to confuse
+// people. (And would generally be a lot more complicated.)
 function moveVisually(line, order, dir, start, forward) {
     var _a;
-    let startIndex = start.head - line.from, spanI = -1;
-    if (startIndex == 0) {
-        if (!forward || !line.length)
+    let startIndex = start.head - line.from;
+    let spanI = BidiSpan.find(order, startIndex, (_a = start.bidiLevel) !== null && _a !== void 0 ? _a : -1, start.assoc);
+    let span = order[spanI], spanEnd = span.side(forward, dir);
+    // End of span
+    if (startIndex == spanEnd) {
+        let nextI = spanI += forward ? 1 : -1;
+        if (nextI < 0 || nextI >= order.length)
             return null;
-        if (order[0].level != dir) {
-            startIndex = order[0].side(false, dir);
-            spanI = 0;
-        }
-    }
-    else if (startIndex == line.length) {
-        if (forward)
-            return null;
-        let last = order[order.length - 1];
-        if (last.level != dir) {
-            startIndex = last.side(true, dir);
-            spanI = order.length - 1;
-        }
-    }
-    if (spanI < 0)
-        spanI = BidiSpan.find(order, startIndex, (_a = start.bidiLevel) !== null && _a !== void 0 ? _a : -1, start.assoc);
-    let span = order[spanI];
-    // End of span. (But not end of line--that was checked for above.)
-    if (startIndex == span.side(forward, dir)) {
-        span = order[spanI += forward ? 1 : -1];
+        span = order[spanI = nextI];
         startIndex = span.side(!forward, dir);
+        spanEnd = span.side(forward, dir);
     }
-    let indexForward = forward == (span.dir == dir);
-    let nextIndex = findClusterBreak(line.text, startIndex, indexForward);
+    let nextIndex = findClusterBreak(line.text, startIndex, span.forward(forward, dir));
+    if (nextIndex < span.from || nextIndex > span.to)
+        nextIndex = spanEnd;
     movedOver = line.text.slice(Math.min(startIndex, nextIndex), Math.max(startIndex, nextIndex));
-    if (nextIndex > span.from && nextIndex < span.to)
-        return EditorSelection.cursor(nextIndex + line.from, indexForward ? -1 : 1, span.level);
     let nextSpan = spanI == (forward ? order.length - 1 : 0) ? null : order[spanI + (forward ? 1 : -1)];
-    if (!nextSpan && span.level != dir)
-        return EditorSelection.cursor(forward ? line.to : line.from, forward ? -1 : 1, dir);
-    if (nextSpan && nextSpan.level < span.level)
-        return EditorSelection.cursor(nextSpan.side(!forward, dir) + line.from, forward ? 1 : -1, nextSpan.level);
-    return EditorSelection.cursor(nextIndex + line.from, forward ? -1 : 1, span.level);
+    if (nextSpan && nextIndex == spanEnd && nextSpan.level + (forward ? 0 : 1) < span.level)
+        return EditorSelection.cursor(nextSpan.side(!forward, dir) + line.from, nextSpan.forward(forward, dir) ? 1 : -1, nextSpan.level);
+    return EditorSelection.cursor(nextIndex + line.from, span.forward(forward, dir) ? -1 : 1, span.level);
+}
+function autoDirection(text, from, to) {
+    for (let i = from; i < to; i++) {
+        let type = charType(text.charCodeAt(i));
+        if (type == 1 /* T.L */)
+            return LTR;
+        if (type == 2 /* T.R */ || type == 4 /* T.AL */)
+            return RTL;
+    }
+    return LTR;
+}
+
+const clickAddsSelectionRange = /*@__PURE__*/Facet.define();
+const dragMovesSelection$1 = /*@__PURE__*/Facet.define();
+const mouseSelectionStyle = /*@__PURE__*/Facet.define();
+const exceptionSink = /*@__PURE__*/Facet.define();
+const updateListener = /*@__PURE__*/Facet.define();
+const inputHandler$1 = /*@__PURE__*/Facet.define();
+const focusChangeEffect = /*@__PURE__*/Facet.define();
+const clipboardInputFilter = /*@__PURE__*/Facet.define();
+const clipboardOutputFilter = /*@__PURE__*/Facet.define();
+const perLineTextDirection = /*@__PURE__*/Facet.define({
+    combine: values => values.some(x => x)
+});
+const nativeSelectionHidden = /*@__PURE__*/Facet.define({
+    combine: values => values.some(x => x)
+});
+const scrollHandler = /*@__PURE__*/Facet.define();
+class ScrollTarget {
+    constructor(range, y = "nearest", x = "nearest", yMargin = 5, xMargin = 5, 
+    // This data structure is abused to also store precise scroll
+    // snapshots, instead of a `scrollIntoView` request. When this
+    // flag is `true`, `range` points at a position in the reference
+    // line, `yMargin` holds the difference between the top of that
+    // line and the top of the editor, and `xMargin` holds the
+    // editor's `scrollLeft`.
+    isSnapshot = false) {
+        this.range = range;
+        this.y = y;
+        this.x = x;
+        this.yMargin = yMargin;
+        this.xMargin = xMargin;
+        this.isSnapshot = isSnapshot;
+    }
+    map(changes) {
+        return changes.empty ? this :
+            new ScrollTarget(this.range.map(changes), this.y, this.x, this.yMargin, this.xMargin, this.isSnapshot);
+    }
+    clip(state) {
+        return this.range.to <= state.doc.length ? this :
+            new ScrollTarget(EditorSelection.cursor(state.doc.length), this.y, this.x, this.yMargin, this.xMargin, this.isSnapshot);
+    }
+}
+const scrollIntoView$1 = /*@__PURE__*/StateEffect.define({ map: (t, ch) => t.map(ch) });
+const setEditContextFormatting = /*@__PURE__*/StateEffect.define();
+/**
+Log or report an unhandled exception in client code. Should
+probably only be used by extension code that allows client code to
+provide functions, and calls those functions in a context where an
+exception can't be propagated to calling code in a reasonable way
+(for example when in an event handler).
+
+Either calls a handler registered with
+[`EditorView.exceptionSink`](https://codemirror.net/6/docs/ref/#view.EditorView^exceptionSink),
+`window.onerror`, if defined, or `console.error` (in which case
+it'll pass `context`, when given, as first argument).
+*/
+function logException(state, exception, context) {
+    let handler = state.facet(exceptionSink);
+    if (handler.length)
+        handler[0](exception);
+    else if (window.onerror)
+        window.onerror(String(exception), context, undefined, undefined, exception);
+    else if (context)
+        console.error(context + ":", exception);
+    else
+        console.error(exception);
+}
+const editable = /*@__PURE__*/Facet.define({ combine: values => values.length ? values[0] : true });
+let nextPluginID = 0;
+const viewPlugin = /*@__PURE__*/Facet.define();
+/**
+View plugins associate stateful values with a view. They can
+influence the way the content is drawn, and are notified of things
+that happen in the view.
+*/
+class ViewPlugin {
+    constructor(
+    /**
+    @internal
+    */
+    id, 
+    /**
+    @internal
+    */
+    create, 
+    /**
+    @internal
+    */
+    domEventHandlers, 
+    /**
+    @internal
+    */
+    domEventObservers, buildExtensions) {
+        this.id = id;
+        this.create = create;
+        this.domEventHandlers = domEventHandlers;
+        this.domEventObservers = domEventObservers;
+        this.extension = buildExtensions(this);
+    }
+    /**
+    Define a plugin from a constructor function that creates the
+    plugin's value, given an editor view.
+    */
+    static define(create, spec) {
+        const { eventHandlers, eventObservers, provide, decorations: deco } = spec || {};
+        return new ViewPlugin(nextPluginID++, create, eventHandlers, eventObservers, plugin => {
+            let ext = [viewPlugin.of(plugin)];
+            if (deco)
+                ext.push(decorations.of(view => {
+                    let pluginInst = view.plugin(plugin);
+                    return pluginInst ? deco(pluginInst) : Decoration.none;
+                }));
+            if (provide)
+                ext.push(provide(plugin));
+            return ext;
+        });
+    }
+    /**
+    Create a plugin for a class whose constructor takes a single
+    editor view as argument.
+    */
+    static fromClass(cls, spec) {
+        return ViewPlugin.define(view => new cls(view), spec);
+    }
+}
+class PluginInstance {
+    constructor(spec) {
+        this.spec = spec;
+        // When starting an update, all plugins have this field set to the
+        // update object, indicating they need to be updated. When finished
+        // updating, it is set to `false`. Retrieving a plugin that needs to
+        // be updated with `view.plugin` forces an eager update.
+        this.mustUpdate = null;
+        // This is null when the plugin is initially created, but
+        // initialized on the first update.
+        this.value = null;
+    }
+    update(view) {
+        if (!this.value) {
+            if (this.spec) {
+                try {
+                    this.value = this.spec.create(view);
+                }
+                catch (e) {
+                    logException(view.state, e, "CodeMirror plugin crashed");
+                    this.deactivate();
+                }
+            }
+        }
+        else if (this.mustUpdate) {
+            let update = this.mustUpdate;
+            this.mustUpdate = null;
+            if (this.value.update) {
+                try {
+                    this.value.update(update);
+                }
+                catch (e) {
+                    logException(update.state, e, "CodeMirror plugin crashed");
+                    if (this.value.destroy)
+                        try {
+                            this.value.destroy();
+                        }
+                        catch (_) { }
+                    this.deactivate();
+                }
+            }
+        }
+        return this;
+    }
+    destroy(view) {
+        var _a;
+        if ((_a = this.value) === null || _a === void 0 ? void 0 : _a.destroy) {
+            try {
+                this.value.destroy();
+            }
+            catch (e) {
+                logException(view.state, e, "CodeMirror plugin crashed");
+            }
+        }
+    }
+    deactivate() {
+        this.spec = this.value = null;
+    }
+}
+const editorAttributes = /*@__PURE__*/Facet.define();
+const contentAttributes = /*@__PURE__*/Facet.define();
+// Provide decorations
+const decorations = /*@__PURE__*/Facet.define();
+const outerDecorations = /*@__PURE__*/Facet.define();
+const atomicRanges = /*@__PURE__*/Facet.define();
+const bidiIsolatedRanges = /*@__PURE__*/Facet.define();
+function getIsolatedRanges(view, line) {
+    let isolates = view.state.facet(bidiIsolatedRanges);
+    if (!isolates.length)
+        return isolates;
+    let sets = isolates.map(i => i instanceof Function ? i(view) : i);
+    let result = [];
+    RangeSet.spans(sets, line.from, line.to, {
+        point() { },
+        span(fromDoc, toDoc, active, open) {
+            let from = fromDoc - line.from, to = toDoc - line.from;
+            let level = result;
+            for (let i = active.length - 1; i >= 0; i--, open--) {
+                let direction = active[i].spec.bidiIsolate, update;
+                if (direction == null)
+                    direction = autoDirection(line.text, from, to);
+                if (open > 0 && level.length &&
+                    (update = level[level.length - 1]).to == from && update.direction == direction) {
+                    update.to = to;
+                    level = update.inner;
+                }
+                else {
+                    let add = { from, to, direction, inner: [] };
+                    level.push(add);
+                    level = add.inner;
+                }
+            }
+        }
+    });
+    return result;
+}
+const scrollMargins = /*@__PURE__*/Facet.define();
+function getScrollMargins(view) {
+    let left = 0, right = 0, top = 0, bottom = 0;
+    for (let source of view.state.facet(scrollMargins)) {
+        let m = source(view);
+        if (m) {
+            if (m.left != null)
+                left = Math.max(left, m.left);
+            if (m.right != null)
+                right = Math.max(right, m.right);
+            if (m.top != null)
+                top = Math.max(top, m.top);
+            if (m.bottom != null)
+                bottom = Math.max(bottom, m.bottom);
+        }
+    }
+    return { left, right, top, bottom };
+}
+const styleModule = /*@__PURE__*/Facet.define();
+class ChangedRange {
+    constructor(fromA, toA, fromB, toB) {
+        this.fromA = fromA;
+        this.toA = toA;
+        this.fromB = fromB;
+        this.toB = toB;
+    }
+    join(other) {
+        return new ChangedRange(Math.min(this.fromA, other.fromA), Math.max(this.toA, other.toA), Math.min(this.fromB, other.fromB), Math.max(this.toB, other.toB));
+    }
+    addToSet(set) {
+        let i = set.length, me = this;
+        for (; i > 0; i--) {
+            let range = set[i - 1];
+            if (range.fromA > me.toA)
+                continue;
+            if (range.toA < me.fromA)
+                break;
+            me = me.join(range);
+            set.splice(i - 1, 1);
+        }
+        set.splice(i, 0, me);
+        return set;
+    }
+    static extendWithRanges(diff, ranges) {
+        if (ranges.length == 0)
+            return diff;
+        let result = [];
+        for (let dI = 0, rI = 0, posA = 0, posB = 0;; dI++) {
+            let next = dI == diff.length ? null : diff[dI], off = posA - posB;
+            let end = next ? next.fromB : 1e9;
+            while (rI < ranges.length && ranges[rI] < end) {
+                let from = ranges[rI], to = ranges[rI + 1];
+                let fromB = Math.max(posB, from), toB = Math.min(end, to);
+                if (fromB <= toB)
+                    new ChangedRange(fromB + off, toB + off, fromB, toB).addToSet(result);
+                if (to > end)
+                    break;
+                else
+                    rI += 2;
+            }
+            if (!next)
+                return result;
+            new ChangedRange(next.fromA, next.toA, next.fromB, next.toB).addToSet(result);
+            posA = next.toA;
+            posB = next.toB;
+        }
+    }
+}
+/**
+View [plugins](https://codemirror.net/6/docs/ref/#view.ViewPlugin) are given instances of this
+class, which describe what happened, whenever the view is updated.
+*/
+class ViewUpdate {
+    constructor(
+    /**
+    The editor view that the update is associated with.
+    */
+    view, 
+    /**
+    The new editor state.
+    */
+    state, 
+    /**
+    The transactions involved in the update. May be empty.
+    */
+    transactions) {
+        this.view = view;
+        this.state = state;
+        this.transactions = transactions;
+        /**
+        @internal
+        */
+        this.flags = 0;
+        this.startState = view.state;
+        this.changes = ChangeSet.empty(this.startState.doc.length);
+        for (let tr of transactions)
+            this.changes = this.changes.compose(tr.changes);
+        let changedRanges = [];
+        this.changes.iterChangedRanges((fromA, toA, fromB, toB) => changedRanges.push(new ChangedRange(fromA, toA, fromB, toB)));
+        this.changedRanges = changedRanges;
+    }
+    /**
+    @internal
+    */
+    static create(view, state, transactions) {
+        return new ViewUpdate(view, state, transactions);
+    }
+    /**
+    Tells you whether the [viewport](https://codemirror.net/6/docs/ref/#view.EditorView.viewport) or
+    [visible ranges](https://codemirror.net/6/docs/ref/#view.EditorView.visibleRanges) changed in this
+    update.
+    */
+    get viewportChanged() {
+        return (this.flags & 4 /* UpdateFlag.Viewport */) > 0;
+    }
+    /**
+    Returns true when
+    [`viewportChanged`](https://codemirror.net/6/docs/ref/#view.ViewUpdate.viewportChanged) is true
+    and the viewport change is not just the result of mapping it in
+    response to document changes.
+    */
+    get viewportMoved() {
+        return (this.flags & 8 /* UpdateFlag.ViewportMoved */) > 0;
+    }
+    /**
+    Indicates whether the height of a block element in the editor
+    changed in this update.
+    */
+    get heightChanged() {
+        return (this.flags & 2 /* UpdateFlag.Height */) > 0;
+    }
+    /**
+    Returns true when the document was modified or the size of the
+    editor, or elements within the editor, changed.
+    */
+    get geometryChanged() {
+        return this.docChanged || (this.flags & (16 /* UpdateFlag.Geometry */ | 2 /* UpdateFlag.Height */)) > 0;
+    }
+    /**
+    True when this update indicates a focus change.
+    */
+    get focusChanged() {
+        return (this.flags & 1 /* UpdateFlag.Focus */) > 0;
+    }
+    /**
+    Whether the document changed in this update.
+    */
+    get docChanged() {
+        return !this.changes.empty;
+    }
+    /**
+    Whether the selection was explicitly set in this update.
+    */
+    get selectionSet() {
+        return this.transactions.some(tr => tr.selection);
+    }
+    /**
+    @internal
+    */
+    get empty() { return this.flags == 0 && this.transactions.length == 0; }
 }
 
 class DocView extends ContentView {
@@ -6804,10 +6997,12 @@ class DocView extends ContentView {
         super();
         this.view = view;
         this.decorations = [];
-        this.dynamicDecorationMap = [];
+        this.dynamicDecorationMap = [false];
         this.domChanged = null;
         this.hasComposition = null;
         this.markedForComposition = new Set;
+        this.editContextFormatting = Decoration.none;
+        this.lastCompositionAfterCursor = false;
         // Track a minimum width for the editor. When measuring sizes in
         // measureVisibleLineHeights, this is updated to point at the width
         // of a given element and its extent in the document. When a change
@@ -6845,8 +7040,9 @@ class DocView extends ContentView {
                 this.minWidthTo = update.changes.mapPos(this.minWidthTo, 1);
             }
         }
+        this.updateEditContextFormatting(update);
         let readCompositionAt = -1;
-        if (this.view.inputState.composing >= 0) {
+        if (this.view.inputState.composing >= 0 && !this.view.observer.editContext) {
             if ((_a = this.domChanged) === null || _a === void 0 ? void 0 : _a.newSel)
                 readCompositionAt = this.domChanged.newSel.head;
             else if (!touchesComposition(update.changes, this.hasComposition) && !update.selectionSet)
@@ -6954,6 +7150,14 @@ class DocView extends ContentView {
         if (composition)
             this.fixCompositionDOM(composition);
     }
+    updateEditContextFormatting(update) {
+        this.editContextFormatting = this.editContextFormatting.map(update.changes);
+        for (let tr of update.transactions)
+            for (let effect of tr.effects)
+                if (effect.is(setEditContextFormatting)) {
+                    this.editContextFormatting = effect.value;
+                }
+    }
     compositionView(composition) {
         let cur = new TextView(composition.text.nodeValue);
         cur.flags |= 8 /* ViewFlag.Composition */;
@@ -6986,7 +7190,7 @@ class DocView extends ContentView {
         if (mustRead || !this.view.observer.selectionRange.focusNode)
             this.view.observer.readSelectionRange();
         let activeElt = this.view.root.activeElement, focused = activeElt == this.dom;
-        let selectionNotFocus = !focused &&
+        let selectionNotFocus = !focused && !(this.view.state.facet(editable) || this.dom.tabIndex > -1) &&
             hasSelection(this.dom, this.view.observer.selectionRange) && !(activeElt && this.dom.contains(activeElt));
         if (!(focused || fromPointer || selectionNotFocus))
             return;
@@ -7005,9 +7209,8 @@ class DocView extends ContentView {
         }
         let domSel = this.view.observer.selectionRange;
         // If the selection is already here, or in an equivalent position, don't touch it
-        if (force || !domSel.focusNode ||
-            !isEquivalentPosition(anchor.node, anchor.offset, domSel.anchorNode, domSel.anchorOffset) ||
-            !isEquivalentPosition(head.node, head.offset, domSel.focusNode, domSel.focusOffset)) {
+        if (force || !domSel.focusNode || (!isEquivalentPosition(anchor.node, anchor.offset, domSel.anchorNode, domSel.anchorOffset) ||
+            !isEquivalentPosition(head.node, head.offset, domSel.focusNode, domSel.focusOffset)) && !this.suppressWidgetCursorChange(domSel, main)) {
             this.view.observer.ignore(() => {
                 // Chrome Android will hide the virtual keyboard when tapping
                 // inside an uneditable node, and not bring it back when we
@@ -7025,7 +7228,7 @@ class DocView extends ContentView {
                     if (browser.gecko) {
                         let nextTo = nextToUneditable(anchor.node, anchor.offset);
                         if (nextTo && nextTo != (1 /* NextTo.Before */ | 2 /* NextTo.After */)) {
-                            let text = nearbyTextNode(anchor.node, anchor.offset, nextTo == 1 /* NextTo.Before */ ? 1 : -1);
+                            let text = (nextTo == 1 /* NextTo.Before */ ? textNodeBefore : textNodeAfter)(anchor.node, anchor.offset);
                             if (text)
                                 anchor = new DOMPos(text.node, text.offset);
                         }
@@ -7067,6 +7270,14 @@ class DocView extends ContentView {
         }
         this.impreciseAnchor = anchor.precise ? null : new DOMPos(domSel.anchorNode, domSel.anchorOffset);
         this.impreciseHead = head.precise ? null : new DOMPos(domSel.focusNode, domSel.focusOffset);
+    }
+    // If a zero-length widget is inserted next to the cursor during
+    // composition, avoid moving it across it and disrupting the
+    // composition.
+    suppressWidgetCursorChange(sel, cursor) {
+        return this.hasComposition && cursor.empty &&
+            isEquivalentPosition(sel.focusNode, sel.focusOffset, sel.anchorNode, sel.anchorOffset) &&
+            this.posFromDOM(sel.focusNode, sel.focusOffset) == cursor.head;
     }
     enforceCursorAssoc() {
         if (this.hasComposition)
@@ -7151,6 +7362,12 @@ class DocView extends ContentView {
                 (!best || child instanceof LineView && !(best instanceof LineView && side >= 0))) {
                 best = child;
                 bestPos = start;
+            }
+            else if (best && start == pos && end == pos && child instanceof BlockWidgetView && Math.abs(side) < 2) {
+                if (child.deco.startSide < 0)
+                    break;
+                else if (i)
+                    best = null;
             }
             off = start;
         }
@@ -7272,17 +7489,30 @@ class DocView extends ContentView {
         return Decoration.set(deco);
     }
     updateDeco() {
-        let allDeco = this.view.state.facet(decorations).map((d, i) => {
-            let dynamic = this.dynamicDecorationMap[i] = typeof d == "function";
+        let i = 1;
+        let allDeco = this.view.state.facet(decorations).map(d => {
+            let dynamic = this.dynamicDecorationMap[i++] = typeof d == "function";
             return dynamic ? d(this.view) : d;
         });
-        for (let i = allDeco.length; i < allDeco.length + 3; i++)
-            this.dynamicDecorationMap[i] = false;
-        return this.decorations = [
+        let dynamicOuter = false, outerDeco = this.view.state.facet(outerDecorations).map((d, i) => {
+            let dynamic = typeof d == "function";
+            if (dynamic)
+                dynamicOuter = true;
+            return dynamic ? d(this.view) : d;
+        });
+        if (outerDeco.length) {
+            this.dynamicDecorationMap[i++] = dynamicOuter;
+            allDeco.push(RangeSet.join(outerDeco));
+        }
+        this.decorations = [
+            this.editContextFormatting,
             ...allDeco,
             this.computeBlockGapDeco(),
             this.view.viewState.lineGapDeco
         ];
+        while (i < this.decorations.length)
+            this.dynamicDecorationMap[i++] = false;
+        return this.decorations;
     }
     scrollIntoView(target) {
         if (target.isSnapshot) {
@@ -7290,6 +7520,15 @@ class DocView extends ContentView {
             this.view.scrollDOM.scrollTop = ref.top - target.yMargin;
             this.view.scrollDOM.scrollLeft = target.xMargin;
             return;
+        }
+        for (let handler of this.view.state.facet(scrollHandler)) {
+            try {
+                if (handler(this.view, target.range, target))
+                    return true;
+            }
+            catch (e) {
+                logException(this.view.state, e, "scroll handler");
+            }
         }
         let { range } = target;
         let rect = this.coordsAt(range.head, range.empty ? range.assoc : range.head > range.anchor ? -1 : 1), other;
@@ -7312,26 +7551,25 @@ function betweenUneditable(pos) {
         (pos.offset == 0 || pos.node.childNodes[pos.offset - 1].contentEditable == "false") &&
         (pos.offset == pos.node.childNodes.length || pos.node.childNodes[pos.offset].contentEditable == "false");
 }
-class BlockGapWidget extends WidgetType {
-    constructor(height) {
-        super();
-        this.height = height;
-    }
-    toDOM() {
-        let elt = document.createElement("div");
-        this.updateDOM(elt);
-        return elt;
-    }
-    eq(other) { return other.height == this.height; }
-    updateDOM(elt) {
-        elt.style.height = this.height + "px";
-        return true;
-    }
-    get estimatedHeight() { return this.height; }
-}
 function findCompositionNode(view, headPos) {
     let sel = view.observer.selectionRange;
-    let textNode = sel.focusNode && nearbyTextNode(sel.focusNode, sel.focusOffset, 0);
+    if (!sel.focusNode)
+        return null;
+    let textBefore = textNodeBefore(sel.focusNode, sel.focusOffset);
+    let textAfter = textNodeAfter(sel.focusNode, sel.focusOffset);
+    let textNode = textBefore || textAfter;
+    if (textAfter && textBefore && textAfter.node != textBefore.node) {
+        let descAfter = ContentView.get(textAfter.node);
+        if (!descAfter || descAfter instanceof TextView && descAfter.text != textAfter.node.nodeValue) {
+            textNode = textAfter;
+        }
+        else if (view.docView.lastCompositionAfterCursor) {
+            let descBefore = ContentView.get(textBefore.node);
+            if (!(!descBefore || descBefore instanceof TextView && descBefore.text != textBefore.node.nodeValue))
+                textNode = textAfter;
+        }
+    }
+    view.docView.lastCompositionAfterCursor = textNode != textBefore;
     if (!textNode)
         return null;
     let from = headPos - textNode.offset;
@@ -7366,33 +7604,6 @@ function findCompositionRange(view, changes, headPos) {
             return null;
     }
 }
-function nearbyTextNode(startNode, startOffset, side) {
-    if (side <= 0)
-        for (let node = startNode, offset = startOffset;;) {
-            if (node.nodeType == 3)
-                return { node: node, offset: offset };
-            if (node.nodeType == 1 && offset > 0) {
-                node = node.childNodes[offset - 1];
-                offset = maxOffset(node);
-            }
-            else {
-                break;
-            }
-        }
-    if (side >= 0)
-        for (let node = startNode, offset = startOffset;;) {
-            if (node.nodeType == 3)
-                return { node: node, offset: offset };
-            if (node.nodeType == 1 && offset < node.childNodes.length && side >= 0) {
-                node = node.childNodes[offset];
-                offset = 0;
-            }
-            else {
-                break;
-            }
-        }
-    return null;
-}
 function nextToUneditable(node, offset) {
     if (node.nodeType != 1)
         return 0;
@@ -7405,6 +7616,7 @@ let DecorationComparator$1 = class DecorationComparator {
     }
     compareRange(from, to) { addRange(from, to, this.changes); }
     comparePoint(from, to) { addRange(from, to, this.changes); }
+    boundChange(pos) { addRange(pos, pos, this.changes); }
 };
 function findChangedDeco(a, b, diff) {
     let comp = new DecorationComparator$1;
@@ -7630,6 +7842,11 @@ function posAtCoords(view, coords, precise, bias = -1) {
                     node = undefined;
             }
         }
+        // Chrome will return offsets into <input> elements without child
+        // nodes, which will lead to a null deref below, so clip the
+        // offset to the node size.
+        if (node)
+            offset = Math.min(maxOffset(node), offset);
     }
     // No luck, do our own (potentially expensive) search
     if (!node || !view.docView.dom.contains(node)) {
@@ -7723,7 +7940,7 @@ function moveByChar(view, start, forward, by) {
             char = "\n";
             line = view.state.doc.line(line.number + (forward ? 1 : -1));
             spans = view.bidiSpans(line);
-            next = EditorSelection.cursor(forward ? line.from : line.to);
+            next = view.visualLineSide(line, !forward);
         }
         if (!check) {
             if (!by)
@@ -7797,7 +8014,388 @@ function skipAtoms(view, oldPos, pos) {
     return newPos == pos.from ? pos : EditorSelection.cursor(newPos, newPos < pos.from ? 1 : -1);
 }
 
-// This will also be where dragging info and such goes
+const LineBreakPlaceholder = "\uffff";
+class DOMReader {
+    constructor(points, state) {
+        this.points = points;
+        this.text = "";
+        this.lineSeparator = state.facet(EditorState.lineSeparator);
+    }
+    append(text) {
+        this.text += text;
+    }
+    lineBreak() {
+        this.text += LineBreakPlaceholder;
+    }
+    readRange(start, end) {
+        if (!start)
+            return this;
+        let parent = start.parentNode;
+        for (let cur = start;;) {
+            this.findPointBefore(parent, cur);
+            let oldLen = this.text.length;
+            this.readNode(cur);
+            let next = cur.nextSibling;
+            if (next == end)
+                break;
+            let view = ContentView.get(cur), nextView = ContentView.get(next);
+            if (view && nextView ? view.breakAfter :
+                (view ? view.breakAfter : isBlockElement(cur)) ||
+                    (isBlockElement(next) && (cur.nodeName != "BR" || cur.cmIgnore) && this.text.length > oldLen))
+                this.lineBreak();
+            cur = next;
+        }
+        this.findPointBefore(parent, end);
+        return this;
+    }
+    readTextNode(node) {
+        let text = node.nodeValue;
+        for (let point of this.points)
+            if (point.node == node)
+                point.pos = this.text.length + Math.min(point.offset, text.length);
+        for (let off = 0, re = this.lineSeparator ? null : /\r\n?|\n/g;;) {
+            let nextBreak = -1, breakSize = 1, m;
+            if (this.lineSeparator) {
+                nextBreak = text.indexOf(this.lineSeparator, off);
+                breakSize = this.lineSeparator.length;
+            }
+            else if (m = re.exec(text)) {
+                nextBreak = m.index;
+                breakSize = m[0].length;
+            }
+            this.append(text.slice(off, nextBreak < 0 ? text.length : nextBreak));
+            if (nextBreak < 0)
+                break;
+            this.lineBreak();
+            if (breakSize > 1)
+                for (let point of this.points)
+                    if (point.node == node && point.pos > this.text.length)
+                        point.pos -= breakSize - 1;
+            off = nextBreak + breakSize;
+        }
+    }
+    readNode(node) {
+        if (node.cmIgnore)
+            return;
+        let view = ContentView.get(node);
+        let fromView = view && view.overrideDOMText;
+        if (fromView != null) {
+            this.findPointInside(node, fromView.length);
+            for (let i = fromView.iter(); !i.next().done;) {
+                if (i.lineBreak)
+                    this.lineBreak();
+                else
+                    this.append(i.value);
+            }
+        }
+        else if (node.nodeType == 3) {
+            this.readTextNode(node);
+        }
+        else if (node.nodeName == "BR") {
+            if (node.nextSibling)
+                this.lineBreak();
+        }
+        else if (node.nodeType == 1) {
+            this.readRange(node.firstChild, null);
+        }
+    }
+    findPointBefore(node, next) {
+        for (let point of this.points)
+            if (point.node == node && node.childNodes[point.offset] == next)
+                point.pos = this.text.length;
+    }
+    findPointInside(node, length) {
+        for (let point of this.points)
+            if (node.nodeType == 3 ? point.node == node : node.contains(point.node))
+                point.pos = this.text.length + (isAtEnd(node, point.node, point.offset) ? length : 0);
+    }
+}
+function isAtEnd(parent, node, offset) {
+    for (;;) {
+        if (!node || offset < maxOffset(node))
+            return false;
+        if (node == parent)
+            return true;
+        offset = domIndex(node) + 1;
+        node = node.parentNode;
+    }
+}
+class DOMPoint {
+    constructor(node, offset) {
+        this.node = node;
+        this.offset = offset;
+        this.pos = -1;
+    }
+}
+
+class DOMChange {
+    constructor(view, start, end, typeOver) {
+        this.typeOver = typeOver;
+        this.bounds = null;
+        this.text = "";
+        this.domChanged = start > -1;
+        let { impreciseHead: iHead, impreciseAnchor: iAnchor } = view.docView;
+        if (view.state.readOnly && start > -1) {
+            // Ignore changes when the editor is read-only
+            this.newSel = null;
+        }
+        else if (start > -1 && (this.bounds = view.docView.domBoundsAround(start, end, 0))) {
+            let selPoints = iHead || iAnchor ? [] : selectionPoints(view);
+            let reader = new DOMReader(selPoints, view.state);
+            reader.readRange(this.bounds.startDOM, this.bounds.endDOM);
+            this.text = reader.text;
+            this.newSel = selectionFromPoints(selPoints, this.bounds.from);
+        }
+        else {
+            let domSel = view.observer.selectionRange;
+            let head = iHead && iHead.node == domSel.focusNode && iHead.offset == domSel.focusOffset ||
+                !contains(view.contentDOM, domSel.focusNode)
+                ? view.state.selection.main.head
+                : view.docView.posFromDOM(domSel.focusNode, domSel.focusOffset);
+            let anchor = iAnchor && iAnchor.node == domSel.anchorNode && iAnchor.offset == domSel.anchorOffset ||
+                !contains(view.contentDOM, domSel.anchorNode)
+                ? view.state.selection.main.anchor
+                : view.docView.posFromDOM(domSel.anchorNode, domSel.anchorOffset);
+            // iOS will refuse to select the block gaps when doing
+            // select-all.
+            // Chrome will put the selection *inside* them, confusing
+            // posFromDOM
+            let vp = view.viewport;
+            if ((browser.ios || browser.chrome) && view.state.selection.main.empty && head != anchor &&
+                (vp.from > 0 || vp.to < view.state.doc.length)) {
+                let from = Math.min(head, anchor), to = Math.max(head, anchor);
+                let offFrom = vp.from - from, offTo = vp.to - to;
+                if ((offFrom == 0 || offFrom == 1 || from == 0) && (offTo == 0 || offTo == -1 || to == view.state.doc.length)) {
+                    head = 0;
+                    anchor = view.state.doc.length;
+                }
+            }
+            this.newSel = EditorSelection.single(anchor, head);
+        }
+    }
+}
+function applyDOMChange(view, domChange) {
+    let change;
+    let { newSel } = domChange, sel = view.state.selection.main;
+    let lastKey = view.inputState.lastKeyTime > Date.now() - 100 ? view.inputState.lastKeyCode : -1;
+    if (domChange.bounds) {
+        let { from, to } = domChange.bounds;
+        let preferredPos = sel.from, preferredSide = null;
+        // Prefer anchoring to end when Backspace is pressed (or, on
+        // Android, when something was deleted)
+        if (lastKey === 8 || browser.android && domChange.text.length < to - from) {
+            preferredPos = sel.to;
+            preferredSide = "end";
+        }
+        let diff = findDiff(view.state.doc.sliceString(from, to, LineBreakPlaceholder), domChange.text, preferredPos - from, preferredSide);
+        if (diff) {
+            // Chrome inserts two newlines when pressing shift-enter at the
+            // end of a line. DomChange drops one of those.
+            if (browser.chrome && lastKey == 13 &&
+                diff.toB == diff.from + 2 && domChange.text.slice(diff.from, diff.toB) == LineBreakPlaceholder + LineBreakPlaceholder)
+                diff.toB--;
+            change = { from: from + diff.from, to: from + diff.toA,
+                insert: Text.of(domChange.text.slice(diff.from, diff.toB).split(LineBreakPlaceholder)) };
+        }
+    }
+    else if (newSel && (!view.hasFocus && view.state.facet(editable) || newSel.main.eq(sel))) {
+        newSel = null;
+    }
+    if (!change && !newSel)
+        return false;
+    if (!change && domChange.typeOver && !sel.empty && newSel && newSel.main.empty) {
+        // Heuristic to notice typing over a selected character
+        change = { from: sel.from, to: sel.to, insert: view.state.doc.slice(sel.from, sel.to) };
+    }
+    else if ((browser.mac || browser.android) && change && change.from == change.to && change.from == sel.head - 1 &&
+        /^\. ?$/.test(change.insert.toString()) && view.contentDOM.getAttribute("autocorrect") == "off") {
+        // Detect insert-period-on-double-space Mac and Android behavior,
+        // and transform it into a regular space insert.
+        if (newSel && change.insert.length == 2)
+            newSel = EditorSelection.single(newSel.main.anchor - 1, newSel.main.head - 1);
+        change = { from: change.from, to: change.to, insert: Text.of([change.insert.toString().replace(".", " ")]) };
+    }
+    else if (change && change.from >= sel.from && change.to <= sel.to &&
+        (change.from != sel.from || change.to != sel.to) &&
+        (sel.to - sel.from) - (change.to - change.from) <= 4) {
+        // If the change is inside the selection and covers most of it,
+        // assume it is a selection replace (with identical characters at
+        // the start/end not included in the diff)
+        change = {
+            from: sel.from, to: sel.to,
+            insert: view.state.doc.slice(sel.from, change.from).append(change.insert).append(view.state.doc.slice(change.to, sel.to))
+        };
+    }
+    else if (browser.chrome && change && change.from == change.to && change.from == sel.head &&
+        change.insert.toString() == "\n " && view.lineWrapping) {
+        // In Chrome, if you insert a space at the start of a wrapped
+        // line, it will actually insert a newline and a space, causing a
+        // bogus new line to be created in CodeMirror (#968)
+        if (newSel)
+            newSel = EditorSelection.single(newSel.main.anchor - 1, newSel.main.head - 1);
+        change = { from: sel.from, to: sel.to, insert: Text.of([" "]) };
+    }
+    if (change) {
+        return applyDOMChangeInner(view, change, newSel, lastKey);
+    }
+    else if (newSel && !newSel.main.eq(sel)) {
+        let scrollIntoView = false, userEvent = "select";
+        if (view.inputState.lastSelectionTime > Date.now() - 50) {
+            if (view.inputState.lastSelectionOrigin == "select")
+                scrollIntoView = true;
+            userEvent = view.inputState.lastSelectionOrigin;
+        }
+        view.dispatch({ selection: newSel, scrollIntoView, userEvent });
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+function applyDOMChangeInner(view, change, newSel, lastKey = -1) {
+    if (browser.ios && view.inputState.flushIOSKey(change))
+        return true;
+    let sel = view.state.selection.main;
+    // Android browsers don't fire reasonable key events for enter,
+    // backspace, or delete. So this detects changes that look like
+    // they're caused by those keys, and reinterprets them as key
+    // events. (Some of these keys are also handled by beforeinput
+    // events and the pendingAndroidKey mechanism, but that's not
+    // reliable in all situations.)
+    if (browser.android &&
+        ((change.to == sel.to &&
+            // GBoard will sometimes remove a space it just inserted
+            // after a completion when you press enter
+            (change.from == sel.from || change.from == sel.from - 1 && view.state.sliceDoc(change.from, sel.from) == " ") &&
+            change.insert.length == 1 && change.insert.lines == 2 &&
+            dispatchKey(view.contentDOM, "Enter", 13)) ||
+            ((change.from == sel.from - 1 && change.to == sel.to && change.insert.length == 0 ||
+                lastKey == 8 && change.insert.length < change.to - change.from && change.to > sel.head) &&
+                dispatchKey(view.contentDOM, "Backspace", 8)) ||
+            (change.from == sel.from && change.to == sel.to + 1 && change.insert.length == 0 &&
+                dispatchKey(view.contentDOM, "Delete", 46))))
+        return true;
+    let text = change.insert.toString();
+    if (view.inputState.composing >= 0)
+        view.inputState.composing++;
+    let defaultTr;
+    let defaultInsert = () => defaultTr || (defaultTr = applyDefaultInsert(view, change, newSel));
+    if (!view.state.facet(inputHandler$1).some(h => h(view, change.from, change.to, text, defaultInsert)))
+        view.dispatch(defaultInsert());
+    return true;
+}
+function applyDefaultInsert(view, change, newSel) {
+    let tr, startState = view.state, sel = startState.selection.main;
+    if (change.from >= sel.from && change.to <= sel.to && change.to - change.from >= (sel.to - sel.from) / 3 &&
+        (!newSel || newSel.main.empty && newSel.main.from == change.from + change.insert.length) &&
+        view.inputState.composing < 0) {
+        let before = sel.from < change.from ? startState.sliceDoc(sel.from, change.from) : "";
+        let after = sel.to > change.to ? startState.sliceDoc(change.to, sel.to) : "";
+        tr = startState.replaceSelection(view.state.toText(before + change.insert.sliceString(0, undefined, view.state.lineBreak) + after));
+    }
+    else {
+        let changes = startState.changes(change);
+        let mainSel = newSel && newSel.main.to <= changes.newLength ? newSel.main : undefined;
+        // Try to apply a composition change to all cursors
+        if (startState.selection.ranges.length > 1 && view.inputState.composing >= 0 &&
+            change.to <= sel.to && change.to >= sel.to - 10) {
+            let replaced = view.state.sliceDoc(change.from, change.to);
+            let compositionRange, composition = newSel && findCompositionNode(view, newSel.main.head);
+            if (composition) {
+                let dLen = change.insert.length - (change.to - change.from);
+                compositionRange = { from: composition.from, to: composition.to - dLen };
+            }
+            else {
+                compositionRange = view.state.doc.lineAt(sel.head);
+            }
+            let offset = sel.to - change.to, size = sel.to - sel.from;
+            tr = startState.changeByRange(range => {
+                if (range.from == sel.from && range.to == sel.to)
+                    return { changes, range: mainSel || range.map(changes) };
+                let to = range.to - offset, from = to - replaced.length;
+                if (range.to - range.from != size || view.state.sliceDoc(from, to) != replaced ||
+                    // Unfortunately, there's no way to make multiple
+                    // changes in the same node work without aborting
+                    // composition, so cursors in the composition range are
+                    // ignored.
+                    range.to >= compositionRange.from && range.from <= compositionRange.to)
+                    return { range };
+                let rangeChanges = startState.changes({ from, to, insert: change.insert }), selOff = range.to - sel.to;
+                return {
+                    changes: rangeChanges,
+                    range: !mainSel ? range.map(rangeChanges) :
+                        EditorSelection.range(Math.max(0, mainSel.anchor + selOff), Math.max(0, mainSel.head + selOff))
+                };
+            });
+        }
+        else {
+            tr = {
+                changes,
+                selection: mainSel && startState.selection.replaceRange(mainSel)
+            };
+        }
+    }
+    let userEvent = "input.type";
+    if (view.composing ||
+        view.inputState.compositionPendingChange && view.inputState.compositionEndedAt > Date.now() - 50) {
+        view.inputState.compositionPendingChange = false;
+        userEvent += ".compose";
+        if (view.inputState.compositionFirstChange) {
+            userEvent += ".start";
+            view.inputState.compositionFirstChange = false;
+        }
+    }
+    return startState.update(tr, { userEvent, scrollIntoView: true });
+}
+function findDiff(a, b, preferredPos, preferredSide) {
+    let minLen = Math.min(a.length, b.length);
+    let from = 0;
+    while (from < minLen && a.charCodeAt(from) == b.charCodeAt(from))
+        from++;
+    if (from == minLen && a.length == b.length)
+        return null;
+    let toA = a.length, toB = b.length;
+    while (toA > 0 && toB > 0 && a.charCodeAt(toA - 1) == b.charCodeAt(toB - 1)) {
+        toA--;
+        toB--;
+    }
+    if (preferredSide == "end") {
+        let adjust = Math.max(0, from - Math.min(toA, toB));
+        preferredPos -= toA + adjust - from;
+    }
+    if (toA < from && a.length < b.length) {
+        let move = preferredPos <= from && preferredPos >= toA ? from - preferredPos : 0;
+        from -= move;
+        toB = from + (toB - toA);
+        toA = from;
+    }
+    else if (toB < from) {
+        let move = preferredPos <= from && preferredPos >= toB ? from - preferredPos : 0;
+        from -= move;
+        toA = from + (toA - toB);
+        toB = from;
+    }
+    return { from, toA, toB };
+}
+function selectionPoints(view) {
+    let result = [];
+    if (view.root.activeElement != view.contentDOM)
+        return result;
+    let { anchorNode, anchorOffset, focusNode, focusOffset } = view.observer.selectionRange;
+    if (anchorNode) {
+        result.push(new DOMPoint(anchorNode, anchorOffset));
+        if (focusNode != anchorNode || focusOffset != anchorOffset)
+            result.push(new DOMPoint(focusNode, focusOffset));
+    }
+    return result;
+}
+function selectionFromPoints(points, base) {
+    if (points.length == 0)
+        return null;
+    let anchor = points[0].pos, head = points.length == 2 ? points[1].pos : anchor;
+    return anchor > -1 && head > -1 ? EditorSelection.single(anchor + base, head + base) : null;
+}
+
 class InputState {
     setSelectionOrigin(origin) {
         this.lastSelectionOrigin = origin;
@@ -7815,9 +8413,16 @@ class InputState {
         // (after which we retroactively handle them and reset the DOM) to
         // avoid messing up the virtual keyboard state.
         this.pendingIOSKey = undefined;
+        /**
+        When enabled (>-1), tab presses are not given to key handlers,
+        leaving the browser's default behavior. If >0, the mode expires
+        at that timestamp, and any other keypress clears it.
+        Esc enables temporary tab focus mode for two seconds when not
+        otherwise handled.
+        */
+        this.tabFocusMode = -1;
         this.lastSelectionOrigin = null;
         this.lastSelectionTime = 0;
-        this.lastEscPress = 0;
         this.lastContextMenu = 0;
         this.scrollHandlers = [];
         this.handlers = Object.create(null);
@@ -7858,7 +8463,10 @@ class InputState {
             return;
         if (event.type == "keydown" && this.keydown(event))
             return;
-        this.runHandlers(event.type, event);
+        if (this.view.updateState != 0 /* UpdateState.Idle */)
+            Promise.resolve().then(() => this.runHandlers(event.type, event));
+        else
+            this.runHandlers(event.type, event);
     }
     runHandlers(type, event) {
         let handlers = this.handlers[type];
@@ -7897,10 +8505,10 @@ class InputState {
         // Must always run, even if a custom handler handled the event
         this.lastKeyCode = event.keyCode;
         this.lastKeyTime = Date.now();
-        if (event.keyCode == 9 && Date.now() < this.lastEscPress + 2000)
+        if (event.keyCode == 9 && this.tabFocusMode > -1 && (!this.tabFocusMode || Date.now() <= this.tabFocusMode))
             return true;
-        if (event.keyCode != 27 && modifierCodes.indexOf(event.keyCode) < 0)
-            this.view.inputState.lastEscPress = 0;
+        if (this.tabFocusMode > 0 && event.keyCode != 27 && modifierCodes.indexOf(event.keyCode) < 0)
+            this.tabFocusMode = -1;
         // Chrome for Android usually doesn't fire proper key events, but
         // occasionally does, usually surrounded by a bunch of complicated
         // composition changes. When an enter or backspace key event is
@@ -7928,12 +8536,15 @@ class InputState {
             this.view.observer.forceFlush();
         return false;
     }
-    flushIOSKey() {
+    flushIOSKey(change) {
         let key = this.pendingIOSKey;
         if (!key)
             return false;
+        // This looks like an autocorrection before Enter
+        if (key.key == "Enter" && change && change.from < change.to && /^\S+$/.test(change.insert.toString()))
+            return false;
         this.pendingIOSKey = undefined;
-        return dispatchKey(this.view.contentDOM, key.key, key.keyCode);
+        return dispatchKey(this.view.contentDOM, key.key, key.keyCode, key instanceof KeyboardEvent ? key : undefined);
     }
     ignoreDuringComposition(event) {
         if (!/^key/.test(event.type))
@@ -7958,6 +8569,7 @@ class InputState {
         this.mouseSelection = mouseSelection;
     }
     update(update) {
+        this.view.observer.update(update);
         if (this.mouseSelection)
             this.mouseSelection.update(update);
         if (this.draggedContent && update.docChanged)
@@ -8031,7 +8643,7 @@ class MouseSelection {
         this.scrollSpeed = { x: 0, y: 0 };
         this.scrolling = -1;
         this.lastEvent = startEvent;
-        this.scrollParent = scrollableParent(view.contentDOM);
+        this.scrollParents = scrollableParents(view.contentDOM);
         this.atoms = view.state.facet(atomicRanges).map(f => f(view));
         let doc = view.contentDOM.ownerDocument;
         doc.addEventListener("mousemove", this.move = this.move.bind(this));
@@ -8047,24 +8659,26 @@ class MouseSelection {
             this.select(event);
     }
     move(event) {
-        var _a;
         if (event.buttons == 0)
             return this.destroy();
         if (this.dragging || this.dragging == null && dist(this.startEvent, event) < 10)
             return;
         this.select(this.lastEvent = event);
         let sx = 0, sy = 0;
-        let rect = ((_a = this.scrollParent) === null || _a === void 0 ? void 0 : _a.getBoundingClientRect())
-            || { left: 0, top: 0, right: this.view.win.innerWidth, bottom: this.view.win.innerHeight };
+        let left = 0, top = 0, right = this.view.win.innerWidth, bottom = this.view.win.innerHeight;
+        if (this.scrollParents.x)
+            ({ left, right } = this.scrollParents.x.getBoundingClientRect());
+        if (this.scrollParents.y)
+            ({ top, bottom } = this.scrollParents.y.getBoundingClientRect());
         let margins = getScrollMargins(this.view);
-        if (event.clientX - margins.left <= rect.left + dragScrollMargin)
-            sx = -dragScrollSpeed(rect.left - event.clientX);
-        else if (event.clientX + margins.right >= rect.right - dragScrollMargin)
-            sx = dragScrollSpeed(event.clientX - rect.right);
-        if (event.clientY - margins.top <= rect.top + dragScrollMargin)
-            sy = -dragScrollSpeed(rect.top - event.clientY);
-        else if (event.clientY + margins.bottom >= rect.bottom - dragScrollMargin)
-            sy = dragScrollSpeed(event.clientY - rect.bottom);
+        if (event.clientX - margins.left <= left + dragScrollMargin)
+            sx = -dragScrollSpeed(left - event.clientX);
+        else if (event.clientX + margins.right >= right - dragScrollMargin)
+            sx = dragScrollSpeed(event.clientX - right);
+        if (event.clientY - margins.top <= top + dragScrollMargin)
+            sy = -dragScrollSpeed(top - event.clientY);
+        else if (event.clientY + margins.bottom >= bottom - dragScrollMargin)
+            sy = dragScrollSpeed(event.clientY - bottom);
         this.setScrollSpeed(sx, sy);
     }
     up(event) {
@@ -8093,13 +8707,17 @@ class MouseSelection {
         }
     }
     scroll() {
-        if (this.scrollParent) {
-            this.scrollParent.scrollLeft += this.scrollSpeed.x;
-            this.scrollParent.scrollTop += this.scrollSpeed.y;
+        let { x, y } = this.scrollSpeed;
+        if (x && this.scrollParents.x) {
+            this.scrollParents.x.scrollLeft += x;
+            x = 0;
         }
-        else {
-            this.view.win.scrollBy(this.scrollSpeed.x, this.scrollSpeed.y);
+        if (y && this.scrollParents.y) {
+            this.scrollParents.y.scrollTop += y;
+            y = 0;
         }
+        if (x || y)
+            this.view.win.scrollBy(x, y);
         if (this.dragging === false)
             this.select(this.lastEvent);
     }
@@ -8128,8 +8746,7 @@ class MouseSelection {
     }
     select(event) {
         let { view } = this, selection = this.skipAtoms(this.style.get(event, this.extend, this.multiple));
-        if (this.mustSelect || !selection.eq(view.state.selection) ||
-            selection.main.assoc != view.state.selection.main.assoc && this.dragging === false)
+        if (this.mustSelect || !selection.eq(view.state.selection, this.dragging === false))
             this.view.dispatch({
                 selection,
                 userEvent: "select.pointer"
@@ -8137,7 +8754,9 @@ class MouseSelection {
         this.mustSelect = false;
     }
     update(update) {
-        if (this.style.update(update))
+        if (update.transactions.some(tr => tr.isUserEvent("input.type")))
+            this.destroy();
+        else if (this.style.update(update))
             setTimeout(() => this.select(this.lastEvent), 20);
     }
 }
@@ -8197,7 +8816,13 @@ function capturePaste(view) {
         doPaste(view, target.value);
     }, 50);
 }
+function textFilter(state, facet, text) {
+    for (let filter of state.facet(facet))
+        text = filter(text, state);
+    return text;
+}
 function doPaste(view, input) {
+    input = textFilter(view.state, clipboardInputFilter, input);
     let { state } = view, changes, i = 1, text = state.toText(input);
     let byLine = text.lines == state.selection.ranges.length;
     let linewise = lastLinewiseCopy != null && state.selection.ranges.every(r => r.empty) && lastLinewiseCopy == text.toString();
@@ -8234,8 +8859,8 @@ observers.scroll = view => {
 };
 handlers.keydown = (view, event) => {
     view.inputState.setSelectionOrigin("select");
-    if (event.keyCode == 27)
-        view.inputState.lastEscPress = Date.now();
+    if (event.keyCode == 27 && view.inputState.tabFocusMode != 0)
+        view.inputState.tabFocusMode = Date.now() + 2000;
     return false;
 };
 observers.touchstart = (view, e) => {
@@ -8261,7 +8886,12 @@ handlers.mousedown = (view, event) => {
         let mustFocus = !view.hasFocus;
         view.inputState.startMouseSelection(new MouseSelection(view, event, style, mustFocus));
         if (mustFocus)
-            view.observer.ignore(() => focusPreventScroll(view.contentDOM));
+            view.observer.ignore(() => {
+                focusPreventScroll(view.contentDOM);
+                let active = view.root.activeElement;
+                if (active && !active.contains(view.contentDOM))
+                    active.blur();
+            });
         let mouseSel = view.inputState.mouseSelection;
         if (mouseSel) {
             mouseSel.start(event);
@@ -8285,8 +8915,7 @@ function rangeForClick(view, pos, bias, type) {
         return EditorSelection.range(from, to);
     }
 }
-let insideY = (y, rect) => y >= rect.top && y <= rect.bottom;
-let inside = (x, y, rect) => insideY(y, rect) && x >= rect.left && x <= rect.right;
+let inside = (x, y, rect) => y >= rect.top && y <= rect.bottom && x >= rect.left && x <= rect.right;
 // Try to determine, for the given coordinates, associated with the
 // given position, whether they are related to the element before or
 // the element after the position.
@@ -8308,8 +8937,8 @@ function findPositionSide(view, pos, x, y) {
     if (after && inside(x, y, after))
         return 1;
     // This is probably a line wrap point. Pick before if the point is
-    // beside it.
-    return before && insideY(y, before) ? -1 : 1;
+    // above its bottom.
+    return before && before.bottom >= y ? -1 : 1;
 }
 function queryPos(view, event) {
     let pos = view.posAtCoords({ x: event.clientX, y: event.clientY }, false);
@@ -8378,7 +9007,7 @@ handlers.dragstart = (view, event) => {
         inputState.mouseSelection.dragging = true;
     inputState.draggedContent = range;
     if (event.dataTransfer) {
-        event.dataTransfer.setData("Text", view.state.sliceDoc(range.from, range.to));
+        event.dataTransfer.setData("Text", textFilter(view.state, clipboardOutputFilter, view.state.sliceDoc(range.from, range.to)));
         event.dataTransfer.effectAllowed = "copyMove";
     }
     return false;
@@ -8388,6 +9017,7 @@ handlers.dragend = view => {
     return false;
 };
 function dropText(view, event, text, direct) {
+    text = textFilter(view.state, clipboardInputFilter, text);
     if (!text)
         return;
     let dropPos = view.posAtCoords({ x: event.clientX, y: event.clientY }, false);
@@ -8443,7 +9073,7 @@ handlers.paste = (view, event) => {
     view.observer.flush();
     let data = brokenClipboardAPI ? null : event.clipboardData;
     if (data) {
-        doPaste(view, data.getData("text/plain") || data.getData("text/uri-text"));
+        doPaste(view, data.getData("text/plain") || data.getData("text/uri-list"));
         return true;
     }
     else {
@@ -8488,7 +9118,7 @@ function copiedRange(state) {
         }
         linewise = true;
     }
-    return { text: content.join(state.lineBreak), ranges, linewise };
+    return { text: textFilter(state, clipboardOutputFilter, content.join(state.lineBreak)), ranges, linewise };
 }
 let lastLinewiseCopy = null;
 handlers.copy = handlers.cut = (view, event) => {
@@ -8549,6 +9179,8 @@ observers.blur = view => {
     updateForFocusChange(view);
 };
 observers.compositionstart = observers.compositionupdate = view => {
+    if (view.observer.editContext)
+        return; // Composition handled by edit context
     if (view.inputState.compositionFirstChange == null)
         view.inputState.compositionFirstChange = true;
     if (view.inputState.composing < 0) {
@@ -8557,6 +9189,8 @@ observers.compositionstart = observers.compositionupdate = view => {
     }
 };
 observers.compositionend = view => {
+    if (view.observer.editContext)
+        return; // Composition handled by edit context
     view.inputState.composing = -1;
     view.inputState.compositionEndedAt = Date.now();
     view.inputState.compositionPendingKey = true;
@@ -8584,7 +9218,18 @@ observers.contextmenu = view => {
     view.inputState.lastContextMenu = Date.now();
 };
 handlers.beforeinput = (view, event) => {
-    var _a;
+    var _a, _b;
+    // In EditContext mode, we must handle insertReplacementText events
+    // directly, to make spell checking corrections work
+    if (event.inputType == "insertReplacementText" && view.observer.editContext) {
+        let text = (_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.getData("text/plain"), ranges = event.getTargetRanges();
+        if (text && ranges.length) {
+            let r = ranges[0];
+            let from = view.posAtDOM(r.startContainer, r.startOffset), to = view.posAtDOM(r.endContainer, r.endOffset);
+            applyDOMChangeInner(view, { from, to, insert: view.state.toText(text) }, null);
+            return true;
+        }
+    }
     // Because Chrome Android doesn't fire useful key events, use
     // beforeinput to detect backspace (and possibly enter and delete,
     // but those usually don't even seem to fire beforeinput events at
@@ -8596,7 +9241,7 @@ handlers.beforeinput = (view, event) => {
     if (browser.chrome && browser.android && (pending = PendingKeys.find(key => key.inputType == event.inputType))) {
         view.observer.delayAndroidKey(pending.key, pending.keyCode);
         if (pending.key == "Backspace" || pending.key == "Delete") {
-            let startViewHeight = ((_a = window.visualViewport) === null || _a === void 0 ? void 0 : _a.height) || 0;
+            let startViewHeight = ((_b = window.visualViewport) === null || _b === void 0 ? void 0 : _b.height) || 0;
             setTimeout(() => {
                 var _a;
                 // Backspacing near uneditable nodes on Chrome Android sometimes
@@ -8608,6 +9253,16 @@ handlers.beforeinput = (view, event) => {
                 }
             }, 100);
         }
+    }
+    if (browser.ios && event.inputType == "deleteContentForward") {
+        // For some reason, DOM changes (and beforeinput) happen _before_
+        // the key event for ctrl-d on iOS when using an external
+        // keyboard.
+        view.observer.flushSoon();
+    }
+    // Safari will occasionally forget to fire compositionend at the end of a dead-key composition
+    if (browser.safari && event.inputType == "insertText" && view.inputState.composing >= 0) {
+        setTimeout(() => observers.compositionend(view, event), 20);
     }
     return false;
 };
@@ -8625,6 +9280,9 @@ function firefoxCopyCutHack(doc) {
 }
 
 const wrappingWhiteSpace = ["pre-wrap", "normal", "pre-line", "break-spaces"];
+// Used to track, during updateHeight, if any actual heights changed
+let heightChangeFlag = false;
+function clearHeightChangeFlag() { heightChangeFlag = false; }
 class HeightOracle {
     constructor(lineWrapping) {
         this.lineWrapping = lineWrapping;
@@ -8634,8 +9292,6 @@ class HeightOracle {
         this.charWidth = 7;
         this.textHeight = 14; // The height of the actual font (font-size)
         this.lineLength = 30;
-        // Used to track, during updateHeight, if any actual heights changed
-        this.heightChanged = false;
     }
     heightForGap(from, to) {
         let lines = this.doc.lineAt(to).number - this.doc.lineAt(from).number + 1;
@@ -8793,10 +9449,10 @@ class HeightMap {
     }
     get outdated() { return (this.flags & 2 /* Flag.Outdated */) > 0; }
     set outdated(value) { this.flags = (value ? 2 /* Flag.Outdated */ : 0) | (this.flags & ~2 /* Flag.Outdated */); }
-    setHeight(oracle, height) {
+    setHeight(height) {
         if (this.height != height) {
             if (Math.abs(this.height - height) > Epsilon)
-                oracle.heightChanged = true;
+                heightChangeFlag = true;
             this.height = height;
         }
     }
@@ -8827,7 +9483,7 @@ class HeightMap {
             fromB += start.from - fromA;
             fromA = start.from;
             let nodes = NodeBuilder.build(oracle.setDoc(doc), decorations, fromB, toB);
-            me = me.replace(fromA, toA, nodes);
+            me = replace(me, me.replace(fromA, toA, nodes));
         }
         return me.updateHeight(oracle, 0);
     }
@@ -8887,6 +9543,13 @@ class HeightMap {
         return new HeightMapBranch(HeightMap.of(nodes.slice(0, i)), brk, HeightMap.of(nodes.slice(j)));
     }
 }
+function replace(old, val) {
+    if (old == val)
+        return old;
+    if (old.constructor != val.constructor)
+        heightChangeFlag = true;
+    return val;
+}
 HeightMap.prototype.size = 1;
 class HeightMapBlock extends HeightMap {
     constructor(length, height, deco) {
@@ -8905,7 +9568,7 @@ class HeightMapBlock extends HeightMap {
     }
     updateHeight(oracle, offset = 0, _force = false, measured) {
         if (measured && measured.from <= offset && measured.more)
-            this.setHeight(oracle, measured.heights[measured.index++]);
+            this.setHeight(measured.heights[measured.index++]);
         this.outdated = false;
         return this;
     }
@@ -8939,9 +9602,9 @@ class HeightMapText extends HeightMapBlock {
     }
     updateHeight(oracle, offset = 0, force = false, measured) {
         if (measured && measured.from <= offset && measured.more)
-            this.setHeight(oracle, measured.heights[measured.index++]);
+            this.setHeight(measured.heights[measured.index++]);
         else if (force || this.outdated)
-            this.setHeight(oracle, Math.max(this.widgetHeight, oracle.heightForLine(this.length - this.collapsed)) +
+            this.setHeight(Math.max(this.widgetHeight, oracle.heightForLine(this.length - this.collapsed)) +
                 this.breaks * oracle.lineHeight);
         this.outdated = false;
         return this;
@@ -8970,7 +9633,8 @@ class HeightMapGap extends HeightMap {
     blockAt(height, oracle, top, offset) {
         let { firstLine, lastLine, perLine, perChar } = this.heightMetrics(oracle, offset);
         if (oracle.lineWrapping) {
-            let guess = offset + Math.round(Math.max(0, Math.min(1, (height - top) / this.height)) * this.length);
+            let guess = offset + (height < oracle.lineHeight ? 0
+                : Math.round(Math.max(0, Math.min(1, (height - top) / this.height)) * this.length));
             let line = oracle.doc.lineAt(guess), lineHeight = perLine + line.length * perChar;
             let lineTop = Math.max(top, height - lineHeight / 2);
             return new BlockInfo(line.from, line.length, lineTop, lineHeight, 0);
@@ -9063,11 +9727,11 @@ class HeightMapGap extends HeightMap {
             let result = HeightMap.of(nodes);
             if (singleHeight < 0 || Math.abs(result.height - this.height) >= Epsilon ||
                 Math.abs(singleHeight - this.heightMetrics(oracle, offset).perLine) >= Epsilon)
-                oracle.heightChanged = true;
-            return result;
+                heightChangeFlag = true;
+            return replace(this, result);
         }
         else if (force || this.outdated) {
-            this.setHeight(oracle, oracle.heightForGap(offset, offset + this.length));
+            this.setHeight(oracle.heightForGap(offset, offset + this.length));
             this.outdated = false;
         }
         return this;
@@ -9165,9 +9829,9 @@ class HeightMapBranch extends HeightMap {
     balanced(left, right) {
         if (left.size > 2 * right.size || right.size > 2 * left.size)
             return HeightMap.of(this.break ? [left, null, right] : [left, right]);
-        this.left = left;
-        this.right = right;
-        this.height = left.height + right.height;
+        this.left = replace(this.left, left);
+        this.right = replace(this.right, right);
+        this.setHeight(left.height + right.height);
         this.outdated = left.outdated || right.outdated;
         this.size = left.size + right.size;
         this.length = left.length + this.break + right.length;
@@ -9352,7 +10016,7 @@ function visiblePixelRange(dom, paddingTop) {
                 left = Math.max(left, parentRect.left);
                 right = Math.min(right, parentRect.right);
                 top = Math.max(top, parentRect.top);
-                bottom = parent == dom.parentNode ? parentRect.bottom : Math.min(bottom, parentRect.bottom);
+                bottom = Math.min(parent == dom.parentNode ? win.innerHeight : bottom, parentRect.bottom);
             }
             parent = style.position == "absolute" || style.position == "fixed" ? elt.offsetParent : elt.parentNode;
         }
@@ -9366,6 +10030,11 @@ function visiblePixelRange(dom, paddingTop) {
     return { left: left - rect.left, right: Math.max(left, right) - rect.left,
         top: top - (rect.top + paddingTop), bottom: Math.max(top, bottom) - (rect.top + paddingTop) };
 }
+function inWindow(elt) {
+    let rect = elt.getBoundingClientRect(), win = elt.ownerDocument.defaultView || window;
+    return rect.left < win.innerWidth && rect.right > 0 &&
+        rect.top < win.innerHeight && rect.bottom > 0;
+}
 function fullPixelRange(dom, paddingTop) {
     let rect = dom.getBoundingClientRect();
     return { left: 0, right: rect.right - rect.left,
@@ -9375,10 +10044,11 @@ function fullPixelRange(dom, paddingTop) {
 // lines within the viewport, as a kludge to keep the editor
 // responsive when a ridiculously long line is loaded into it.
 class LineGap {
-    constructor(from, to, size) {
+    constructor(from, to, size, displaySize) {
         this.from = from;
         this.to = to;
         this.size = size;
+        this.displaySize = displaySize;
     }
     static same(a, b) {
         if (a.length != b.length)
@@ -9392,7 +10062,7 @@ class LineGap {
     }
     draw(viewState, wrapping) {
         return Decoration.replace({
-            widget: new LineGapWidget(this.size * (wrapping ? viewState.scaleY : viewState.scaleX), wrapping)
+            widget: new LineGapWidget(this.displaySize * (wrapping ? viewState.scaleY : viewState.scaleX), wrapping)
         }).range(this.from, this.to);
     }
 }
@@ -9430,7 +10100,7 @@ class ViewState {
         this.editorHeight = 0; // scrollDOM.clientHeight, unscaled
         this.editorWidth = 0; // scrollDOM.clientWidth, unscaled
         this.scrollTop = 0; // Last seen scrollDOM.scrollTop, scaled
-        this.scrolledToBottom = true;
+        this.scrolledToBottom = false;
         // The CSS-transformation scale of the editor (transformed size /
         // concrete size)
         this.scaleX = 1;
@@ -9464,9 +10134,12 @@ class ViewState {
         this.heightOracle = new HeightOracle(guessWrapping);
         this.stateDeco = state.facet(decorations).filter(d => typeof d != "function");
         this.heightMap = HeightMap.empty().applyChanges(this.stateDeco, Text.empty, this.heightOracle.setDoc(state.doc), [new ChangedRange(0, 0, 0, state.doc.length)]);
-        this.viewport = this.getViewport(0, null);
+        for (let i = 0; i < 2; i++) {
+            this.viewport = this.getViewport(0, null);
+            if (!this.updateForViewport())
+                break;
+        }
         this.updateViewportLines();
-        this.updateForViewport();
         this.lineGaps = this.ensureLineGaps([]);
         this.lineGapDeco = Decoration.set(this.lineGaps.map(gap => gap.draw(this, false)));
         this.computeVisibleRanges();
@@ -9481,13 +10154,18 @@ class ViewState {
             }
         }
         this.viewports = viewports.sort((a, b) => a.from - b.from);
+        return this.updateScaler();
+    }
+    updateScaler() {
+        let scaler = this.scaler;
         this.scaler = this.heightMap.height <= 7000000 /* VP.MaxDOMHeight */ ? IdScaler :
             new BigScaler(this.heightOracle, this.heightMap, this.viewports);
+        return scaler.eq(this.scaler) ? 0 : 2 /* UpdateFlag.Height */;
     }
     updateViewportLines() {
         this.viewportLines = [];
         this.heightMap.forEachLine(this.viewport.from, this.viewport.to, this.heightOracle.setDoc(this.state.doc), 0, 0, block => {
-            this.viewportLines.push(this.scaler.scale == 1 ? block : scaleBlock(block, this.scaler));
+            this.viewportLines.push(scaleBlock(block, this.scaler));
         });
     }
     update(update, scrollTarget = null) {
@@ -9498,8 +10176,9 @@ class ViewState {
         let heightChanges = ChangedRange.extendWithRanges(contentChanges, heightRelevantDecoChanges(prevDeco, this.stateDeco, update ? update.changes : ChangeSet.empty(this.state.doc.length)));
         let prevHeight = this.heightMap.height;
         let scrollAnchor = this.scrolledToBottom ? null : this.scrollAnchorAt(this.scrollTop);
+        clearHeightChangeFlag();
         this.heightMap = this.heightMap.applyChanges(this.stateDeco, update.startState.doc, this.heightOracle.setDoc(this.state.doc), heightChanges);
-        if (this.heightMap.height != prevHeight)
+        if (this.heightMap.height != prevHeight || heightChangeFlag)
             update.flags |= 2 /* UpdateFlag.Height */;
         if (scrollAnchor) {
             this.scrollAnchorPos = update.changes.mapPos(scrollAnchor.from, -1);
@@ -9513,15 +10192,14 @@ class ViewState {
         if (scrollTarget && (scrollTarget.range.head < viewport.from || scrollTarget.range.head > viewport.to) ||
             !this.viewportIsAppropriate(viewport))
             viewport = this.getViewport(0, scrollTarget);
-        let updateLines = !update.changes.empty || (update.flags & 2 /* UpdateFlag.Height */) ||
-            viewport.from != this.viewport.from || viewport.to != this.viewport.to;
+        let viewportChange = viewport.from != this.viewport.from || viewport.to != this.viewport.to;
         this.viewport = viewport;
-        this.updateForViewport();
-        if (updateLines)
+        update.flags |= this.updateForViewport();
+        if (viewportChange || !update.changes.empty || (update.flags & 2 /* UpdateFlag.Height */))
             this.updateViewportLines();
         if (this.lineGaps.length || this.viewport.to - this.viewport.from > (2000 /* LG.Margin */ << 1))
             this.updateLineGaps(this.ensureLineGaps(this.mapLineGaps(this.lineGaps, update.changes)));
-        update.flags |= this.computeVisibleRanges();
+        update.flags |= this.computeVisibleRanges(update.changes);
         if (scrollTarget)
             this.scrollTarget = scrollTarget;
         if (!this.mustEnforceCursorAssoc && update.selectionSet && update.view.lineWrapping &&
@@ -9542,10 +10220,11 @@ class ViewState {
         let result = 0, bias = 0;
         if (domRect.width && domRect.height) {
             let { scaleX, scaleY } = getScale(dom, domRect);
-            if (this.scaleX != scaleX || this.scaleY != scaleY) {
+            if (scaleX > .005 && Math.abs(this.scaleX - scaleX) > .005 ||
+                scaleY > .005 && Math.abs(this.scaleY - scaleY) > .005) {
                 this.scaleX = scaleX;
                 this.scaleY = scaleY;
-                result |= 8 /* UpdateFlag.Geometry */;
+                result |= 16 /* UpdateFlag.Geometry */;
                 refresh = measureContent = true;
             }
         }
@@ -9555,13 +10234,13 @@ class ViewState {
         if (this.paddingTop != paddingTop || this.paddingBottom != paddingBottom) {
             this.paddingTop = paddingTop;
             this.paddingBottom = paddingBottom;
-            result |= 8 /* UpdateFlag.Geometry */ | 2 /* UpdateFlag.Height */;
+            result |= 16 /* UpdateFlag.Geometry */ | 2 /* UpdateFlag.Height */;
         }
         if (this.editorWidth != view.scrollDOM.clientWidth) {
             if (oracle.lineWrapping)
                 measureContent = true;
             this.editorWidth = view.scrollDOM.clientWidth;
-            result |= 8 /* UpdateFlag.Geometry */;
+            result |= 16 /* UpdateFlag.Geometry */;
         }
         let scrollTop = view.scrollDOM.scrollTop * this.scaleY;
         if (this.scrollTop != scrollTop) {
@@ -9579,13 +10258,13 @@ class ViewState {
             if (inView)
                 measureContent = true;
         }
-        if (!this.inView && !this.scrollTarget)
+        if (!this.inView && !this.scrollTarget && !inWindow(view.dom))
             return 0;
         let contentWidth = domRect.width;
         if (this.contentDOMWidth != contentWidth || this.editorHeight != view.scrollDOM.clientHeight) {
             this.contentDOMWidth = domRect.width;
             this.editorHeight = view.scrollDOM.clientHeight;
-            result |= 8 /* UpdateFlag.Geometry */;
+            result |= 16 /* UpdateFlag.Geometry */;
         }
         if (measureContent) {
             let lineHeights = view.docView.measureVisibleLineHeights(this.viewport);
@@ -9596,27 +10275,30 @@ class ViewState {
                 refresh = lineHeight > 0 && oracle.refresh(whiteSpace, lineHeight, charWidth, textHeight, contentWidth / charWidth, lineHeights);
                 if (refresh) {
                     view.docView.minWidth = 0;
-                    result |= 8 /* UpdateFlag.Geometry */;
+                    result |= 16 /* UpdateFlag.Geometry */;
                 }
             }
             if (dTop > 0 && dBottom > 0)
                 bias = Math.max(dTop, dBottom);
             else if (dTop < 0 && dBottom < 0)
                 bias = Math.min(dTop, dBottom);
-            oracle.heightChanged = false;
+            clearHeightChangeFlag();
             for (let vp of this.viewports) {
                 let heights = vp.from == this.viewport.from ? lineHeights : view.docView.measureVisibleLineHeights(vp);
                 this.heightMap = (refresh ? HeightMap.empty().applyChanges(this.stateDeco, Text.empty, this.heightOracle, [new ChangedRange(0, 0, 0, view.state.doc.length)]) : this.heightMap).updateHeight(oracle, 0, refresh, new MeasuredHeights(vp.from, heights));
             }
-            if (oracle.heightChanged)
+            if (heightChangeFlag)
                 result |= 2 /* UpdateFlag.Height */;
         }
         let viewportChange = !this.viewportIsAppropriate(this.viewport, bias) ||
             this.scrollTarget && (this.scrollTarget.range.head < this.viewport.from ||
                 this.scrollTarget.range.head > this.viewport.to);
-        if (viewportChange)
+        if (viewportChange) {
+            if (result & 2 /* UpdateFlag.Height */)
+                result |= this.updateScaler();
             this.viewport = this.getViewport(bias, this.scrollTarget);
-        this.updateForViewport();
+            result |= this.updateForViewport();
+        }
         if ((result & 2 /* UpdateFlag.Height */) || viewportChange)
             this.updateViewportLines();
         if (this.lineGaps.length || this.viewport.to - this.viewport.from > (2000 /* LG.Margin */ << 1))
@@ -9682,7 +10364,7 @@ class ViewState {
         let mapped = [];
         for (let gap of gaps)
             if (!changes.touchesRange(gap.from, gap.to))
-                mapped.push(new LineGap(changes.mapPos(gap.from), changes.mapPos(gap.to), gap.size));
+                mapped.push(new LineGap(changes.mapPos(gap.from), changes.mapPos(gap.to), gap.size, gap.displaySize));
         return mapped;
     }
     // Computes positions in the viewport where the start or end of a
@@ -9723,16 +10405,18 @@ class ViewState {
                     if (lineStart > from)
                         to = lineStart;
                 }
-                gap = new LineGap(from, to, this.gapSize(line, from, to, structure));
+                let size = this.gapSize(line, from, to, structure);
+                let displaySize = wrapping || size < 2000000 /* VP.MaxHorizGap */ ? size : 2000000 /* VP.MaxHorizGap */;
+                gap = new LineGap(from, to, size, displaySize);
             }
             gaps.push(gap);
         };
-        for (let line of this.viewportLines) {
-            if (line.length < doubleMargin)
-                continue;
+        let checkLine = (line) => {
+            if (line.length < doubleMargin || line.type != exports.BlockType.Text)
+                return;
             let structure = lineStructure(line.from, line.to, this.stateDeco);
             if (structure.total < doubleMargin)
-                continue;
+                return;
             let target = this.scrollTarget ? this.scrollTarget.range.head : null;
             let viewFrom, viewTo;
             if (wrapping) {
@@ -9754,16 +10438,24 @@ class ViewState {
             else {
                 let totalWidth = structure.total * this.heightOracle.charWidth;
                 let marginWidth = margin * this.heightOracle.charWidth;
+                let horizOffset = 0;
+                if (totalWidth > 2000000 /* VP.MaxHorizGap */)
+                    for (let old of current) {
+                        if (old.from >= line.from && old.from < line.to && old.size != old.displaySize &&
+                            old.from * this.heightOracle.charWidth + horizOffset < this.pixelViewport.left)
+                            horizOffset = old.size - old.displaySize;
+                    }
+                let pxLeft = this.pixelViewport.left + horizOffset, pxRight = this.pixelViewport.right + horizOffset;
                 let left, right;
                 if (target != null) {
                     let targetFrac = findFraction(structure, target);
-                    let spaceFrac = ((this.pixelViewport.right - this.pixelViewport.left) / 2 + marginWidth) / totalWidth;
+                    let spaceFrac = ((pxRight - pxLeft) / 2 + marginWidth) / totalWidth;
                     left = targetFrac - spaceFrac;
                     right = targetFrac + spaceFrac;
                 }
                 else {
-                    left = (this.pixelViewport.left - marginWidth) / totalWidth;
-                    right = (this.pixelViewport.right + marginWidth) / totalWidth;
+                    left = (pxLeft - marginWidth) / totalWidth;
+                    right = (pxRight + marginWidth) / totalWidth;
                 }
                 viewFrom = findPosition(structure, left);
                 viewTo = findPosition(structure, right);
@@ -9772,6 +10464,12 @@ class ViewState {
                 addGap(line.from, viewFrom, line, structure);
             if (viewTo < line.to)
                 addGap(viewTo, line.to, line, structure);
+        };
+        for (let line of this.viewportLines) {
+            if (Array.isArray(line.type))
+                line.type.forEach(checkLine);
+            else
+                checkLine(line);
         }
         return gaps;
     }
@@ -9790,7 +10488,7 @@ class ViewState {
             this.lineGapDeco = Decoration.set(gaps.map(gap => gap.draw(this, this.heightOracle.lineWrapping)));
         }
     }
-    computeVisibleRanges() {
+    computeVisibleRanges(changes) {
         let deco = this.stateDeco;
         if (this.lineGaps.length)
             deco = deco.concat(this.lineGapDeco);
@@ -9799,17 +10497,32 @@ class ViewState {
             span(from, to) { ranges.push({ from, to }); },
             point() { }
         }, 20);
-        let changed = ranges.length != this.visibleRanges.length ||
-            this.visibleRanges.some((r, i) => r.from != ranges[i].from || r.to != ranges[i].to);
+        let changed = 0;
+        if (ranges.length != this.visibleRanges.length) {
+            changed = 8 /* UpdateFlag.ViewportMoved */ | 4 /* UpdateFlag.Viewport */;
+        }
+        else {
+            for (let i = 0; i < ranges.length && !(changed & 8 /* UpdateFlag.ViewportMoved */); i++) {
+                let old = this.visibleRanges[i], nw = ranges[i];
+                if (old.from != nw.from || old.to != nw.to) {
+                    changed |= 4 /* UpdateFlag.Viewport */;
+                    if (!(changes && changes.mapPos(old.from, -1) == nw.from && changes.mapPos(old.to, 1) == nw.to))
+                        changed |= 8 /* UpdateFlag.ViewportMoved */;
+                }
+            }
+        }
         this.visibleRanges = ranges;
-        return changed ? 4 /* UpdateFlag.Viewport */ : 0;
+        return changed;
     }
     lineBlockAt(pos) {
-        return (pos >= this.viewport.from && pos <= this.viewport.to && this.viewportLines.find(b => b.from <= pos && b.to >= pos)) ||
+        return (pos >= this.viewport.from && pos <= this.viewport.to &&
+            this.viewportLines.find(b => b.from <= pos && b.to >= pos)) ||
             scaleBlock(this.heightMap.lineAt(pos, QueryType$1.ByPos, this.heightOracle, 0, 0), this.scaler);
     }
     lineBlockAtHeight(height) {
-        return scaleBlock(this.heightMap.lineAt(this.scaler.fromDOM(height), QueryType$1.ByHeight, this.heightOracle, 0, 0), this.scaler);
+        return (height >= this.viewportLines[0].top && height <= this.viewportLines[this.viewportLines.length - 1].bottom &&
+            this.viewportLines.find(l => l.top <= height && l.bottom >= height)) ||
+            scaleBlock(this.heightMap.lineAt(this.scaler.fromDOM(height), QueryType$1.ByHeight, this.heightOracle, 0, 0), this.scaler);
     }
     scrollAnchorAt(scrollTop) {
         let block = this.lineBlockAtHeight(scrollTop + 8);
@@ -9884,7 +10597,8 @@ function find(array, f) {
 const IdScaler = {
     toDOM(n) { return n; },
     fromDOM(n) { return n; },
-    scale: 1
+    scale: 1,
+    eq(other) { return other == this; }
 };
 // When the height is too big (> VP.MaxDOMHeight), scale down the
 // regions outside the viewports so that the total height is
@@ -9926,6 +10640,12 @@ class BigScaler {
             base = vp.bottom;
             domBase = vp.domBottom;
         }
+    }
+    eq(other) {
+        if (!(other instanceof BigScaler))
+            return false;
+        return this.scale == other.scale && this.viewports.length == other.viewports.length &&
+            this.viewports.every((vp, i) => vp.from == other.viewports[i].from && vp.to == other.viewports[i].to);
     }
 }
 function scaleBlock(block, scaler) {
@@ -9978,7 +10698,8 @@ const baseTheme$1$2 = /*@__PURE__*/buildTheme("." + baseThemeID, {
         height: "100%",
         overflowX: "auto",
         position: "relative",
-        zIndex: 0
+        zIndex: 0,
+        overflowAnchor: "none",
     },
     ".cm-content": {
         margin: 0,
@@ -9986,7 +10707,7 @@ const baseTheme$1$2 = /*@__PURE__*/buildTheme("." + baseThemeID, {
         flexShrink: 0,
         display: "block",
         whiteSpace: "pre",
-        wordWrap: "normal",
+        wordWrap: "normal", // https://github.com/codemirror/dev/issues/456
         boxSizing: "border-box",
         minHeight: "100%",
         padding: "4px 0",
@@ -9996,9 +10717,9 @@ const baseTheme$1$2 = /*@__PURE__*/buildTheme("." + baseThemeID, {
         }
     },
     ".cm-lineWrapping": {
-        whiteSpace_fallback: "pre-wrap",
+        whiteSpace_fallback: "pre-wrap", // For IE
         whiteSpace: "break-spaces",
-        wordBreak: "break-word",
+        wordBreak: "break-word", // For Safari, which doesn't support overflow-wrap: anywhere
         overflowWrap: "anywhere",
         flexShrink: 1
     },
@@ -10049,13 +10770,16 @@ const baseTheme$1$2 = /*@__PURE__*/buildTheme("." + baseThemeID, {
         display: "none"
     },
     "&dark .cm-cursor": {
-        borderLeftColor: "#444"
+        borderLeftColor: "#ddd"
     },
     ".cm-dropCursor": {
         position: "absolute"
     },
     "&.cm-focused > .cm-scroller > .cm-cursorLayer .cm-cursor": {
         display: "block"
+    },
+    ".cm-iso": {
+        unicodeBidi: "isolate"
     },
     ".cm-announced": {
         position: "fixed",
@@ -10086,7 +10810,7 @@ const baseTheme$1$2 = /*@__PURE__*/buildTheme("." + baseThemeID, {
         color: "#ccc"
     },
     ".cm-gutter": {
-        display: "flex !important",
+        display: "flex !important", // Necessary -- prevents margin collapsing
         flexDirection: "column",
         flexShrink: 0,
         boxSizing: "border-box",
@@ -10112,7 +10836,8 @@ const baseTheme$1$2 = /*@__PURE__*/buildTheme("." + baseThemeID, {
         boxSizing: "border-box",
         position: "sticky",
         left: 0,
-        right: 0
+        right: 0,
+        zIndex: 300
     },
     "&light .cm-panels": {
         backgroundColor: "#f5f5f5",
@@ -10143,12 +10868,11 @@ const baseTheme$1$2 = /*@__PURE__*/buildTheme("." + baseThemeID, {
         color: "#888",
         display: "inline-block",
         verticalAlign: "top",
+        userSelect: "none"
     },
-    ".cm-highlightSpace:before": {
-        content: "attr(data-display)",
-        position: "absolute",
-        pointerEvents: "none",
-        color: "#888"
+    ".cm-highlightSpace": {
+        backgroundImage: "radial-gradient(circle at 50% 55%, #aaa 20%, transparent 5%)",
+        backgroundPosition: "center",
     },
     ".cm-highlightTab": {
         backgroundImage: `url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="20"><path stroke="%23888" stroke-width="1" fill="none" d="M1 10H196L190 5M190 15L196 10M197 4L197 16"/></svg>')`,
@@ -10196,369 +10920,6 @@ const baseTheme$1$2 = /*@__PURE__*/buildTheme("." + baseThemeID, {
     }
 }, lightDarkIDs);
 
-const LineBreakPlaceholder = "\uffff";
-class DOMReader {
-    constructor(points, state) {
-        this.points = points;
-        this.text = "";
-        this.lineSeparator = state.facet(EditorState.lineSeparator);
-    }
-    append(text) {
-        this.text += text;
-    }
-    lineBreak() {
-        this.text += LineBreakPlaceholder;
-    }
-    readRange(start, end) {
-        if (!start)
-            return this;
-        let parent = start.parentNode;
-        for (let cur = start;;) {
-            this.findPointBefore(parent, cur);
-            let oldLen = this.text.length;
-            this.readNode(cur);
-            let next = cur.nextSibling;
-            if (next == end)
-                break;
-            let view = ContentView.get(cur), nextView = ContentView.get(next);
-            if (view && nextView ? view.breakAfter :
-                (view ? view.breakAfter : isBlockElement(cur)) ||
-                    (isBlockElement(next) && (cur.nodeName != "BR" || cur.cmIgnore) && this.text.length > oldLen))
-                this.lineBreak();
-            cur = next;
-        }
-        this.findPointBefore(parent, end);
-        return this;
-    }
-    readTextNode(node) {
-        let text = node.nodeValue;
-        for (let point of this.points)
-            if (point.node == node)
-                point.pos = this.text.length + Math.min(point.offset, text.length);
-        for (let off = 0, re = this.lineSeparator ? null : /\r\n?|\n/g;;) {
-            let nextBreak = -1, breakSize = 1, m;
-            if (this.lineSeparator) {
-                nextBreak = text.indexOf(this.lineSeparator, off);
-                breakSize = this.lineSeparator.length;
-            }
-            else if (m = re.exec(text)) {
-                nextBreak = m.index;
-                breakSize = m[0].length;
-            }
-            this.append(text.slice(off, nextBreak < 0 ? text.length : nextBreak));
-            if (nextBreak < 0)
-                break;
-            this.lineBreak();
-            if (breakSize > 1)
-                for (let point of this.points)
-                    if (point.node == node && point.pos > this.text.length)
-                        point.pos -= breakSize - 1;
-            off = nextBreak + breakSize;
-        }
-    }
-    readNode(node) {
-        if (node.cmIgnore)
-            return;
-        let view = ContentView.get(node);
-        let fromView = view && view.overrideDOMText;
-        if (fromView != null) {
-            this.findPointInside(node, fromView.length);
-            for (let i = fromView.iter(); !i.next().done;) {
-                if (i.lineBreak)
-                    this.lineBreak();
-                else
-                    this.append(i.value);
-            }
-        }
-        else if (node.nodeType == 3) {
-            this.readTextNode(node);
-        }
-        else if (node.nodeName == "BR") {
-            if (node.nextSibling)
-                this.lineBreak();
-        }
-        else if (node.nodeType == 1) {
-            this.readRange(node.firstChild, null);
-        }
-    }
-    findPointBefore(node, next) {
-        for (let point of this.points)
-            if (point.node == node && node.childNodes[point.offset] == next)
-                point.pos = this.text.length;
-    }
-    findPointInside(node, length) {
-        for (let point of this.points)
-            if (node.nodeType == 3 ? point.node == node : node.contains(point.node))
-                point.pos = this.text.length + (isAtEnd(node, point.node, point.offset) ? length : 0);
-    }
-}
-function isAtEnd(parent, node, offset) {
-    for (;;) {
-        if (!node || offset < maxOffset(node))
-            return false;
-        if (node == parent)
-            return true;
-        offset = domIndex(node) + 1;
-        node = node.parentNode;
-    }
-}
-function isBlockElement(node) {
-    return node.nodeType == 1 && /^(DIV|P|LI|UL|OL|BLOCKQUOTE|DD|DT|H\d|SECTION|PRE)$/.test(node.nodeName);
-}
-class DOMPoint {
-    constructor(node, offset) {
-        this.node = node;
-        this.offset = offset;
-        this.pos = -1;
-    }
-}
-
-class DOMChange {
-    constructor(view, start, end, typeOver) {
-        this.typeOver = typeOver;
-        this.bounds = null;
-        this.text = "";
-        let { impreciseHead: iHead, impreciseAnchor: iAnchor } = view.docView;
-        if (view.state.readOnly && start > -1) {
-            // Ignore changes when the editor is read-only
-            this.newSel = null;
-        }
-        else if (start > -1 && (this.bounds = view.docView.domBoundsAround(start, end, 0))) {
-            let selPoints = iHead || iAnchor ? [] : selectionPoints(view);
-            let reader = new DOMReader(selPoints, view.state);
-            reader.readRange(this.bounds.startDOM, this.bounds.endDOM);
-            this.text = reader.text;
-            this.newSel = selectionFromPoints(selPoints, this.bounds.from);
-        }
-        else {
-            let domSel = view.observer.selectionRange;
-            let head = iHead && iHead.node == domSel.focusNode && iHead.offset == domSel.focusOffset ||
-                !contains(view.contentDOM, domSel.focusNode)
-                ? view.state.selection.main.head
-                : view.docView.posFromDOM(domSel.focusNode, domSel.focusOffset);
-            let anchor = iAnchor && iAnchor.node == domSel.anchorNode && iAnchor.offset == domSel.anchorOffset ||
-                !contains(view.contentDOM, domSel.anchorNode)
-                ? view.state.selection.main.anchor
-                : view.docView.posFromDOM(domSel.anchorNode, domSel.anchorOffset);
-            this.newSel = EditorSelection.single(anchor, head);
-        }
-    }
-}
-function applyDOMChange(view, domChange) {
-    let change;
-    let { newSel } = domChange, sel = view.state.selection.main;
-    let lastKey = view.inputState.lastKeyTime > Date.now() - 100 ? view.inputState.lastKeyCode : -1;
-    if (domChange.bounds) {
-        let { from, to } = domChange.bounds;
-        let preferredPos = sel.from, preferredSide = null;
-        // Prefer anchoring to end when Backspace is pressed (or, on
-        // Android, when something was deleted)
-        if (lastKey === 8 || browser.android && domChange.text.length < to - from) {
-            preferredPos = sel.to;
-            preferredSide = "end";
-        }
-        let diff = findDiff(view.state.doc.sliceString(from, to, LineBreakPlaceholder), domChange.text, preferredPos - from, preferredSide);
-        if (diff) {
-            // Chrome inserts two newlines when pressing shift-enter at the
-            // end of a line. DomChange drops one of those.
-            if (browser.chrome && lastKey == 13 &&
-                diff.toB == diff.from + 2 && domChange.text.slice(diff.from, diff.toB) == LineBreakPlaceholder + LineBreakPlaceholder)
-                diff.toB--;
-            change = { from: from + diff.from, to: from + diff.toA,
-                insert: Text.of(domChange.text.slice(diff.from, diff.toB).split(LineBreakPlaceholder)) };
-        }
-    }
-    else if (newSel && (!view.hasFocus && view.state.facet(editable) || newSel.main.eq(sel))) {
-        newSel = null;
-    }
-    if (!change && !newSel)
-        return false;
-    if (!change && domChange.typeOver && !sel.empty && newSel && newSel.main.empty) {
-        // Heuristic to notice typing over a selected character
-        change = { from: sel.from, to: sel.to, insert: view.state.doc.slice(sel.from, sel.to) };
-    }
-    else if (change && change.from >= sel.from && change.to <= sel.to &&
-        (change.from != sel.from || change.to != sel.to) &&
-        (sel.to - sel.from) - (change.to - change.from) <= 4) {
-        // If the change is inside the selection and covers most of it,
-        // assume it is a selection replace (with identical characters at
-        // the start/end not included in the diff)
-        change = {
-            from: sel.from, to: sel.to,
-            insert: view.state.doc.slice(sel.from, change.from).append(change.insert).append(view.state.doc.slice(change.to, sel.to))
-        };
-    }
-    else if ((browser.mac || browser.android) && change && change.from == change.to && change.from == sel.head - 1 &&
-        /^\. ?$/.test(change.insert.toString()) && view.contentDOM.getAttribute("autocorrect") == "off") {
-        // Detect insert-period-on-double-space Mac and Android behavior,
-        // and transform it into a regular space insert.
-        if (newSel && change.insert.length == 2)
-            newSel = EditorSelection.single(newSel.main.anchor - 1, newSel.main.head - 1);
-        change = { from: sel.from, to: sel.to, insert: Text.of([" "]) };
-    }
-    else if (browser.chrome && change && change.from == change.to && change.from == sel.head &&
-        change.insert.toString() == "\n " && view.lineWrapping) {
-        // In Chrome, if you insert a space at the start of a wrapped
-        // line, it will actually insert a newline and a space, causing a
-        // bogus new line to be created in CodeMirror (#968)
-        if (newSel)
-            newSel = EditorSelection.single(newSel.main.anchor - 1, newSel.main.head - 1);
-        change = { from: sel.from, to: sel.to, insert: Text.of([" "]) };
-    }
-    if (change) {
-        if (browser.ios && view.inputState.flushIOSKey())
-            return true;
-        // Android browsers don't fire reasonable key events for enter,
-        // backspace, or delete. So this detects changes that look like
-        // they're caused by those keys, and reinterprets them as key
-        // events. (Some of these keys are also handled by beforeinput
-        // events and the pendingAndroidKey mechanism, but that's not
-        // reliable in all situations.)
-        if (browser.android &&
-            ((change.from == sel.from && change.to == sel.to &&
-                change.insert.length == 1 && change.insert.lines == 2 &&
-                dispatchKey(view.contentDOM, "Enter", 13)) ||
-                ((change.from == sel.from - 1 && change.to == sel.to && change.insert.length == 0 ||
-                    lastKey == 8 && change.insert.length < change.to - change.from && change.to > sel.head) &&
-                    dispatchKey(view.contentDOM, "Backspace", 8)) ||
-                (change.from == sel.from && change.to == sel.to + 1 && change.insert.length == 0 &&
-                    dispatchKey(view.contentDOM, "Delete", 46))))
-            return true;
-        let text = change.insert.toString();
-        if (view.inputState.composing >= 0)
-            view.inputState.composing++;
-        let defaultTr;
-        let defaultInsert = () => defaultTr || (defaultTr = applyDefaultInsert(view, change, newSel));
-        if (!view.state.facet(inputHandler).some(h => h(view, change.from, change.to, text, defaultInsert)))
-            view.dispatch(defaultInsert());
-        return true;
-    }
-    else if (newSel && !newSel.main.eq(sel)) {
-        let scrollIntoView = false, userEvent = "select";
-        if (view.inputState.lastSelectionTime > Date.now() - 50) {
-            if (view.inputState.lastSelectionOrigin == "select")
-                scrollIntoView = true;
-            userEvent = view.inputState.lastSelectionOrigin;
-        }
-        view.dispatch({ selection: newSel, scrollIntoView, userEvent });
-        return true;
-    }
-    else {
-        return false;
-    }
-}
-function applyDefaultInsert(view, change, newSel) {
-    let tr, startState = view.state, sel = startState.selection.main;
-    if (change.from >= sel.from && change.to <= sel.to && change.to - change.from >= (sel.to - sel.from) / 3 &&
-        (!newSel || newSel.main.empty && newSel.main.from == change.from + change.insert.length) &&
-        view.inputState.composing < 0) {
-        let before = sel.from < change.from ? startState.sliceDoc(sel.from, change.from) : "";
-        let after = sel.to > change.to ? startState.sliceDoc(change.to, sel.to) : "";
-        tr = startState.replaceSelection(view.state.toText(before + change.insert.sliceString(0, undefined, view.state.lineBreak) + after));
-    }
-    else {
-        let changes = startState.changes(change);
-        let mainSel = newSel && newSel.main.to <= changes.newLength ? newSel.main : undefined;
-        // Try to apply a composition change to all cursors
-        if (startState.selection.ranges.length > 1 && view.inputState.composing >= 0 &&
-            change.to <= sel.to && change.to >= sel.to - 10) {
-            let replaced = view.state.sliceDoc(change.from, change.to);
-            let compositionRange, composition = newSel && findCompositionNode(view, newSel.main.head);
-            if (composition) {
-                let dLen = change.insert.length - (change.to - change.from);
-                compositionRange = { from: composition.from, to: composition.to - dLen };
-            }
-            else {
-                compositionRange = view.state.doc.lineAt(sel.head);
-            }
-            let offset = sel.to - change.to, size = sel.to - sel.from;
-            tr = startState.changeByRange(range => {
-                if (range.from == sel.from && range.to == sel.to)
-                    return { changes, range: mainSel || range.map(changes) };
-                let to = range.to - offset, from = to - replaced.length;
-                if (range.to - range.from != size || view.state.sliceDoc(from, to) != replaced ||
-                    // Unfortunately, there's no way to make multiple
-                    // changes in the same node work without aborting
-                    // composition, so cursors in the composition range are
-                    // ignored.
-                    range.to >= compositionRange.from && range.from <= compositionRange.to)
-                    return { range };
-                let rangeChanges = startState.changes({ from, to, insert: change.insert }), selOff = range.to - sel.to;
-                return {
-                    changes: rangeChanges,
-                    range: !mainSel ? range.map(rangeChanges) :
-                        EditorSelection.range(Math.max(0, mainSel.anchor + selOff), Math.max(0, mainSel.head + selOff))
-                };
-            });
-        }
-        else {
-            tr = {
-                changes,
-                selection: mainSel && startState.selection.replaceRange(mainSel)
-            };
-        }
-    }
-    let userEvent = "input.type";
-    if (view.composing ||
-        view.inputState.compositionPendingChange && view.inputState.compositionEndedAt > Date.now() - 50) {
-        view.inputState.compositionPendingChange = false;
-        userEvent += ".compose";
-        if (view.inputState.compositionFirstChange) {
-            userEvent += ".start";
-            view.inputState.compositionFirstChange = false;
-        }
-    }
-    return startState.update(tr, { userEvent, scrollIntoView: true });
-}
-function findDiff(a, b, preferredPos, preferredSide) {
-    let minLen = Math.min(a.length, b.length);
-    let from = 0;
-    while (from < minLen && a.charCodeAt(from) == b.charCodeAt(from))
-        from++;
-    if (from == minLen && a.length == b.length)
-        return null;
-    let toA = a.length, toB = b.length;
-    while (toA > 0 && toB > 0 && a.charCodeAt(toA - 1) == b.charCodeAt(toB - 1)) {
-        toA--;
-        toB--;
-    }
-    if (preferredSide == "end") {
-        let adjust = Math.max(0, from - Math.min(toA, toB));
-        preferredPos -= toA + adjust - from;
-    }
-    if (toA < from && a.length < b.length) {
-        let move = preferredPos <= from && preferredPos >= toA ? from - preferredPos : 0;
-        from -= move;
-        toB = from + (toB - toA);
-        toA = from;
-    }
-    else if (toB < from) {
-        let move = preferredPos <= from && preferredPos >= toB ? from - preferredPos : 0;
-        from -= move;
-        toA = from + (toA - toB);
-        toB = from;
-    }
-    return { from, toA, toB };
-}
-function selectionPoints(view) {
-    let result = [];
-    if (view.root.activeElement != view.contentDOM)
-        return result;
-    let { anchorNode, anchorOffset, focusNode, focusOffset } = view.observer.selectionRange;
-    if (anchorNode) {
-        result.push(new DOMPoint(anchorNode, anchorOffset));
-        if (focusNode != anchorNode || focusOffset != anchorOffset)
-            result.push(new DOMPoint(focusNode, focusOffset));
-    }
-    return result;
-}
-function selectionFromPoints(points, base) {
-    if (points.length == 0)
-        return null;
-    let anchor = points[0].pos, head = points.length == 2 ? points[1].pos : anchor;
-    return anchor > -1 && head > -1 ? EditorSelection.single(anchor + base, head + base) : null;
-}
-
 const observeOptions = {
     childList: true,
     characterData: true,
@@ -10573,6 +10934,7 @@ class DOMObserver {
     constructor(view) {
         this.view = view;
         this.active = false;
+        this.editContext = null;
         // The known selection. Kept in our own object, as opposed to just
         // directly accessing the selection because:
         //  - Safari doesn't report the right selection in shadow DOM
@@ -10594,6 +10956,7 @@ class DOMObserver {
         this.intersecting = false;
         this.gapIntersection = null;
         this.gaps = [];
+        this.printQuery = null;
         // Timeout for scheduling check of the parents that need scroll handlers
         this.parentCheck = -1;
         this.dom = view.contentDOM;
@@ -10616,6 +10979,13 @@ class DOMObserver {
             else
                 this.flush();
         });
+        if (window.EditContext && view.constructor.EDIT_CONTEXT !== false &&
+            // Chrome <126 doesn't support inverted selections in edit context (#1392)
+            !(browser.chrome && browser.chrome_version < 126)) {
+            this.editContext = new EditContextManager(view);
+            if (view.state.facet(editable))
+                view.contentDOM.editContext = this.editContext.editContext;
+        }
         if (useCharData)
             this.onCharData = (event) => {
                 this.queue.push({ target: event.target,
@@ -10627,6 +10997,8 @@ class DOMObserver {
         this.onResize = this.onResize.bind(this);
         this.onPrint = this.onPrint.bind(this);
         this.onScroll = this.onScroll.bind(this);
+        if (window.matchMedia)
+            this.printQuery = window.matchMedia("print");
         if (typeof ResizeObserver == "function") {
             this.resizeScroll = new ResizeObserver(() => {
                 var _a;
@@ -10664,6 +11036,8 @@ class DOMObserver {
     onScroll(e) {
         if (this.intersecting)
             this.flush(false);
+        if (this.editContext)
+            this.view.requestMeasure(this.editContext.measureReq);
         this.onScrollChanged(e);
     }
     onResize() {
@@ -10673,7 +11047,9 @@ class DOMObserver {
                 this.view.requestMeasure();
             }, 50);
     }
-    onPrint() {
+    onPrint(event) {
+        if ((event.type == "change" || !event.type) && !event.matches)
+            return;
         this.view.viewState.printing = true;
         this.view.measure();
         setTimeout(() => {
@@ -10694,7 +11070,7 @@ class DOMObserver {
         if (!this.readSelectionRange() || this.delayedAndroidKey)
             return;
         let { view } = this, sel = this.selectionRange;
-        if (view.state.facet(editable) ? view.root.activeElement != this.dom : !hasSelection(view.dom, sel))
+        if (view.state.facet(editable) ? view.root.activeElement != this.dom : !hasSelection(this.dom, sel))
             return;
         let context = sel.anchorNode && view.docView.nearest(sel.anchorNode);
         if (context && context.ignoreEvent(event)) {
@@ -10718,9 +11094,12 @@ class DOMObserver {
         let { view } = this;
         // The Selection object is broken in shadow roots in Safari. See
         // https://github.com/codemirror/dev/issues/414
+        let selection = getSelection(view.root);
+        if (!selection)
+            return false;
         let range = browser.safari && view.root.nodeType == 11 &&
-            deepActiveElement(this.dom.ownerDocument) == this.dom &&
-            safariSelectionRangeHack(this.view) || getSelection(view.root);
+            view.root.activeElement == this.dom &&
+            safariSelectionRangeHack(this.view, selection) || selection;
         if (!range || this.selectionRange.eq(range))
             return false;
         let local = hasSelection(this.dom, range);
@@ -10917,8 +11296,9 @@ class DOMObserver {
         }
         let startState = this.view.state;
         let handled = applyDOMChange(this.view, domChange);
-        // The view wasn't updated
-        if (this.view.state == startState)
+        // The view wasn't updated but DOM/selection changes were seen. Reset the view.
+        if (this.view.state == startState &&
+            (domChange.domChanged || domChange.newSel && !domChange.newSel.main.eq(this.view.state.selection.main)))
             this.view.update([]);
         return handled;
     }
@@ -10951,15 +11331,36 @@ class DOMObserver {
     }
     addWindowListeners(win) {
         win.addEventListener("resize", this.onResize);
-        win.addEventListener("beforeprint", this.onPrint);
+        if (this.printQuery) {
+            if (this.printQuery.addEventListener)
+                this.printQuery.addEventListener("change", this.onPrint);
+            else
+                this.printQuery.addListener(this.onPrint);
+        }
+        else
+            win.addEventListener("beforeprint", this.onPrint);
         win.addEventListener("scroll", this.onScroll);
         win.document.addEventListener("selectionchange", this.onSelectionChange);
     }
     removeWindowListeners(win) {
         win.removeEventListener("scroll", this.onScroll);
         win.removeEventListener("resize", this.onResize);
-        win.removeEventListener("beforeprint", this.onPrint);
+        if (this.printQuery) {
+            if (this.printQuery.removeEventListener)
+                this.printQuery.removeEventListener("change", this.onPrint);
+            else
+                this.printQuery.removeListener(this.onPrint);
+        }
+        else
+            win.removeEventListener("beforeprint", this.onPrint);
         win.document.removeEventListener("selectionchange", this.onSelectionChange);
+    }
+    update(update) {
+        if (this.editContext) {
+            this.editContext.update(update);
+            if (update.startState.facet(editable) != update.state.facet(editable))
+                update.view.contentDOM.editContext = update.state.facet(editable) ? this.editContext.editContext : null;
+        }
     }
     destroy() {
         var _a, _b, _c;
@@ -10974,6 +11375,10 @@ class DOMObserver {
         clearTimeout(this.resizeTimeout);
         this.win.cancelAnimationFrame(this.delayedFlush);
         this.win.cancelAnimationFrame(this.flushingAndroidKey);
+        if (this.editContext) {
+            this.view.contentDOM.editContext = null;
+            this.editContext.destroy();
+        }
     }
 }
 function findChild(cView, dom, dir) {
@@ -10986,8 +11391,24 @@ function findChild(cView, dom, dir) {
     }
     return null;
 }
+function buildSelectionRangeFromRange(view, range) {
+    let anchorNode = range.startContainer, anchorOffset = range.startOffset;
+    let focusNode = range.endContainer, focusOffset = range.endOffset;
+    let curAnchor = view.docView.domAtPos(view.state.selection.main.anchor);
+    // Since such a range doesn't distinguish between anchor and head,
+    // use a heuristic that flips it around if its end matches the
+    // current anchor.
+    if (isEquivalentPosition(curAnchor.node, curAnchor.offset, focusNode, focusOffset))
+        [anchorNode, anchorOffset, focusNode, focusOffset] = [focusNode, focusOffset, anchorNode, anchorOffset];
+    return { anchorNode, anchorOffset, focusNode, focusOffset };
+}
 // Used to work around a Safari Selection/shadow DOM bug (#414)
-function safariSelectionRangeHack(view) {
+function safariSelectionRangeHack(view, selection) {
+    if (selection.getComposedRanges) {
+        let range = selection.getComposedRanges(view.root)[0];
+        if (range)
+            return buildSelectionRangeFromRange(view, range);
+    }
     let found = null;
     // Because Safari (at least in 2018-2021) doesn't provide regular
     // access to the selection inside a shadowroot, we have to perform a
@@ -11002,17 +11423,212 @@ function safariSelectionRangeHack(view) {
     view.contentDOM.addEventListener("beforeinput", read, true);
     view.dom.ownerDocument.execCommand("indent");
     view.contentDOM.removeEventListener("beforeinput", read, true);
-    if (!found)
-        return null;
-    let anchorNode = found.startContainer, anchorOffset = found.startOffset;
-    let focusNode = found.endContainer, focusOffset = found.endOffset;
-    let curAnchor = view.docView.domAtPos(view.state.selection.main.anchor);
-    // Since such a range doesn't distinguish between anchor and head,
-    // use a heuristic that flips it around if its end matches the
-    // current anchor.
-    if (isEquivalentPosition(curAnchor.node, curAnchor.offset, focusNode, focusOffset))
-        [anchorNode, anchorOffset, focusNode, focusOffset] = [focusNode, focusOffset, anchorNode, anchorOffset];
-    return { anchorNode, anchorOffset, focusNode, focusOffset };
+    return found ? buildSelectionRangeFromRange(view, found) : null;
+}
+class EditContextManager {
+    constructor(view) {
+        // The document window for which the text in the context is
+        // maintained. For large documents, this may be smaller than the
+        // editor document. This window always includes the selection head.
+        this.from = 0;
+        this.to = 0;
+        // When applying a transaction, this is used to compare the change
+        // made to the context content to the change in the transaction in
+        // order to make the minimal changes to the context (since touching
+        // that sometimes breaks series of multiple edits made for a single
+        // user action on some Android keyboards)
+        this.pendingContextChange = null;
+        this.handlers = Object.create(null);
+        // Kludge to work around the fact that EditContext does not respond
+        // well to having its content updated during a composition (see #1472)
+        this.composing = null;
+        this.resetRange(view.state);
+        let context = this.editContext = new window.EditContext({
+            text: view.state.doc.sliceString(this.from, this.to),
+            selectionStart: this.toContextPos(Math.max(this.from, Math.min(this.to, view.state.selection.main.anchor))),
+            selectionEnd: this.toContextPos(view.state.selection.main.head)
+        });
+        this.handlers.textupdate = e => {
+            let main = view.state.selection.main, { anchor, head } = main;
+            let from = this.toEditorPos(e.updateRangeStart), to = this.toEditorPos(e.updateRangeEnd);
+            if (view.inputState.composing >= 0 && !this.composing)
+                this.composing = { contextBase: e.updateRangeStart, editorBase: from, drifted: false };
+            let change = { from, to, insert: Text.of(e.text.split("\n")) };
+            // If the window doesn't include the anchor, assume changes
+            // adjacent to a side go up to the anchor.
+            if (change.from == this.from && anchor < this.from)
+                change.from = anchor;
+            else if (change.to == this.to && anchor > this.to)
+                change.to = anchor;
+            // Edit contexts sometimes fire empty changes
+            if (change.from == change.to && !change.insert.length) {
+                let newSel = EditorSelection.single(this.toEditorPos(e.selectionStart), this.toEditorPos(e.selectionEnd));
+                if (!newSel.main.eq(main))
+                    view.dispatch({ selection: newSel, userEvent: "select" });
+                return;
+            }
+            if ((browser.mac || browser.android) && change.from == head - 1 &&
+                /^\. ?$/.test(e.text) && view.contentDOM.getAttribute("autocorrect") == "off")
+                change = { from, to, insert: Text.of([e.text.replace(".", " ")]) };
+            this.pendingContextChange = change;
+            if (!view.state.readOnly) {
+                let newLen = this.to - this.from + (change.to - change.from + change.insert.length);
+                applyDOMChangeInner(view, change, EditorSelection.single(this.toEditorPos(e.selectionStart, newLen), this.toEditorPos(e.selectionEnd, newLen)));
+            }
+            // If the transaction didn't flush our change, revert it so
+            // that the context is in sync with the editor state again.
+            if (this.pendingContextChange) {
+                this.revertPending(view.state);
+                this.setSelection(view.state);
+            }
+        };
+        this.handlers.characterboundsupdate = e => {
+            let rects = [], prev = null;
+            for (let i = this.toEditorPos(e.rangeStart), end = this.toEditorPos(e.rangeEnd); i < end; i++) {
+                let rect = view.coordsForChar(i);
+                prev = (rect && new DOMRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top))
+                    || prev || new DOMRect;
+                rects.push(prev);
+            }
+            context.updateCharacterBounds(e.rangeStart, rects);
+        };
+        this.handlers.textformatupdate = e => {
+            let deco = [];
+            for (let format of e.getTextFormats()) {
+                let lineStyle = format.underlineStyle, thickness = format.underlineThickness;
+                if (lineStyle != "None" && thickness != "None") {
+                    let from = this.toEditorPos(format.rangeStart), to = this.toEditorPos(format.rangeEnd);
+                    if (from < to) {
+                        let style = `text-decoration: underline ${lineStyle == "Dashed" ? "dashed " : lineStyle == "Squiggle" ? "wavy " : ""}${thickness == "Thin" ? 1 : 2}px`;
+                        deco.push(Decoration.mark({ attributes: { style } }).range(from, to));
+                    }
+                }
+            }
+            view.dispatch({ effects: setEditContextFormatting.of(Decoration.set(deco)) });
+        };
+        this.handlers.compositionstart = () => {
+            if (view.inputState.composing < 0) {
+                view.inputState.composing = 0;
+                view.inputState.compositionFirstChange = true;
+            }
+        };
+        this.handlers.compositionend = () => {
+            view.inputState.composing = -1;
+            view.inputState.compositionFirstChange = null;
+            if (this.composing) {
+                let { drifted } = this.composing;
+                this.composing = null;
+                if (drifted)
+                    this.reset(view.state);
+            }
+        };
+        for (let event in this.handlers)
+            context.addEventListener(event, this.handlers[event]);
+        this.measureReq = { read: view => {
+                this.editContext.updateControlBounds(view.contentDOM.getBoundingClientRect());
+                let sel = getSelection(view.root);
+                if (sel && sel.rangeCount)
+                    this.editContext.updateSelectionBounds(sel.getRangeAt(0).getBoundingClientRect());
+            } };
+    }
+    applyEdits(update) {
+        let off = 0, abort = false, pending = this.pendingContextChange;
+        update.changes.iterChanges((fromA, toA, _fromB, _toB, insert) => {
+            if (abort)
+                return;
+            let dLen = insert.length - (toA - fromA);
+            if (pending && toA >= pending.to) {
+                if (pending.from == fromA && pending.to == toA && pending.insert.eq(insert)) {
+                    pending = this.pendingContextChange = null; // Match
+                    off += dLen;
+                    this.to += dLen;
+                    return;
+                }
+                else { // Mismatch, revert
+                    pending = null;
+                    this.revertPending(update.state);
+                }
+            }
+            fromA += off;
+            toA += off;
+            if (toA <= this.from) { // Before the window
+                this.from += dLen;
+                this.to += dLen;
+            }
+            else if (fromA < this.to) { // Overlaps with window
+                if (fromA < this.from || toA > this.to || (this.to - this.from) + insert.length > 30000 /* CxVp.MaxSize */) {
+                    abort = true;
+                    return;
+                }
+                this.editContext.updateText(this.toContextPos(fromA), this.toContextPos(toA), insert.toString());
+                this.to += dLen;
+            }
+            off += dLen;
+        });
+        if (pending && !abort)
+            this.revertPending(update.state);
+        return !abort;
+    }
+    update(update) {
+        let reverted = this.pendingContextChange, startSel = update.startState.selection.main;
+        if (this.composing &&
+            (this.composing.drifted ||
+                (!update.changes.touchesRange(startSel.from, startSel.to) &&
+                    update.transactions.some(tr => !tr.isUserEvent("input.type") && tr.changes.touchesRange(this.from, this.to))))) {
+            this.composing.drifted = true;
+            this.composing.editorBase = update.changes.mapPos(this.composing.editorBase);
+        }
+        else if (!this.applyEdits(update) || !this.rangeIsValid(update.state)) {
+            this.pendingContextChange = null;
+            this.reset(update.state);
+        }
+        else if (update.docChanged || update.selectionSet || reverted) {
+            this.setSelection(update.state);
+        }
+        if (update.geometryChanged || update.docChanged || update.selectionSet)
+            update.view.requestMeasure(this.measureReq);
+    }
+    resetRange(state) {
+        let { head } = state.selection.main;
+        this.from = Math.max(0, head - 10000 /* CxVp.Margin */);
+        this.to = Math.min(state.doc.length, head + 10000 /* CxVp.Margin */);
+    }
+    reset(state) {
+        this.resetRange(state);
+        this.editContext.updateText(0, this.editContext.text.length, state.doc.sliceString(this.from, this.to));
+        this.setSelection(state);
+    }
+    revertPending(state) {
+        let pending = this.pendingContextChange;
+        this.pendingContextChange = null;
+        this.editContext.updateText(this.toContextPos(pending.from), this.toContextPos(pending.from + pending.insert.length), state.doc.sliceString(pending.from, pending.to));
+    }
+    setSelection(state) {
+        let { main } = state.selection;
+        let start = this.toContextPos(Math.max(this.from, Math.min(this.to, main.anchor)));
+        let end = this.toContextPos(main.head);
+        if (this.editContext.selectionStart != start || this.editContext.selectionEnd != end)
+            this.editContext.updateSelection(start, end);
+    }
+    rangeIsValid(state) {
+        let { head } = state.selection.main;
+        return !(this.from > 0 && head - this.from < 500 /* CxVp.MinMargin */ ||
+            this.to < state.doc.length && this.to - head < 500 /* CxVp.MinMargin */ ||
+            this.to - this.from > 10000 /* CxVp.Margin */ * 3);
+    }
+    toEditorPos(contextPos, clipLen = this.to - this.from) {
+        contextPos = Math.min(contextPos, clipLen);
+        let c = this.composing;
+        return c && c.drifted ? c.editorBase + (contextPos - c.contextBase) : contextPos + this.from;
+    }
+    toContextPos(editorPos) {
+        let c = this.composing;
+        return c && c.drifted ? c.contextBase + (editorPos - c.editorBase) : editorPos - this.from;
+    }
+    destroy() {
+        for (let event in this.handlers)
+            this.editContext.removeEventListener(event, this.handlers[event]);
+    }
 }
 
 // The editor's update state machine looks something like this:
@@ -11088,6 +11704,7 @@ class EditorView {
     view, so that the user can see the editor.
     */
     constructor(config = {}) {
+        var _a;
         this.plugins = [];
         this.pluginMap = new Map;
         this.editorAttrs = {};
@@ -11117,6 +11734,8 @@ class EditorView {
         this.dom = document.createElement("div");
         this.dom.appendChild(this.announceDOM);
         this.dom.appendChild(this.scrollDOM);
+        if (config.parent)
+            config.parent.appendChild(this.dom);
         let { dispatch } = config;
         this.dispatchTransactions = config.dispatchTransactions ||
             (dispatch && ((trs) => trs.forEach(tr => dispatch(tr, this)))) ||
@@ -11124,7 +11743,7 @@ class EditorView {
         this.dispatch = this.dispatch.bind(this);
         this._root = (config.root || getRoot(config.parent) || document);
         this.viewState = new ViewState(config.state || EditorState.create(config));
-        if (config.scrollTo && config.scrollTo.is(scrollIntoView))
+        if (config.scrollTo && config.scrollTo.is(scrollIntoView$1))
             this.viewState.scrollTarget = config.scrollTo.value.clip(this.viewState.state);
         this.plugins = this.state.facet(viewPlugin).map(spec => new PluginInstance(spec));
         for (let plugin of this.plugins)
@@ -11137,8 +11756,8 @@ class EditorView {
         this.updateAttrs();
         this.updateState = 0 /* UpdateState.Idle */;
         this.requestMeasure();
-        if (config.parent)
-            config.parent.appendChild(this.dom);
+        if ((_a = document.fonts) === null || _a === void 0 ? void 0 : _a.ready)
+            document.fonts.ready.then(() => this.requestMeasure());
     }
     dispatch(...input) {
         let trs = input.length == 1 && input[0] instanceof Transaction ? input
@@ -11212,7 +11831,7 @@ class EditorView {
                     scrollTarget = new ScrollTarget(main.empty ? main : EditorSelection.cursor(main.head, main.head > main.anchor ? -1 : 1));
                 }
                 for (let e of tr.effects)
-                    if (e.is(scrollIntoView))
+                    if (e.is(scrollIntoView$1))
                         scrollTarget = e.value.clip(this.state);
             }
             this.viewState.update(update, scrollTarget);
@@ -11235,6 +11854,8 @@ class EditorView {
             this.viewState.mustMeasureContent = true;
         if (redrawn || attrsChanged || scrollTarget || this.viewState.mustEnforceCursorAssoc || this.viewState.mustMeasureContent)
             this.requestMeasure();
+        if (redrawn)
+            this.docViewUpdate();
         if (!update.empty)
             for (let listener of this.state.facet(updateListener)) {
                 try {
@@ -11322,6 +11943,19 @@ class EditorView {
         if (prevSpecs != specs)
             this.inputState.ensureHandlers(this.plugins);
     }
+    docViewUpdate() {
+        for (let plugin of this.plugins) {
+            let val = plugin.value;
+            if (val && val.docViewUpdate) {
+                try {
+                    val.docViewUpdate(this);
+                }
+                catch (e) {
+                    logException(this.state, e, "doc view update listener");
+                }
+            }
+        }
+    }
     /**
     @internal
     */
@@ -11392,6 +12026,8 @@ class EditorView {
                     this.inputState.update(update);
                     this.updateAttrs();
                     redrawn = this.docView.update(update);
+                    if (redrawn)
+                        this.docViewUpdate();
                 }
                 for (let i = 0; i < measuring.length; i++)
                     if (measured[i] != BadMeasure) {
@@ -11454,6 +12090,7 @@ class EditorView {
             spellcheck: "false",
             autocorrect: "off",
             autocapitalize: "off",
+            writingsuggestions: "false",
             translate: "no",
             contenteditable: !this.state.facet(editable) ? "false" : "true",
             class: "cm-content",
@@ -11587,7 +12224,7 @@ class EditorView {
     /**
     Find the line block around the given document position. A line
     block is a range delimited on both sides by either a
-    non-[hidden](https://codemirror.net/6/docs/ref/#view.Decoration^replace) line breaks, or the
+    non-[hidden](https://codemirror.net/6/docs/ref/#view.Decoration^replace) line break, or the
     start/end of the document. It will usually just hold a line of
     text, but may be broken into multiple textblocks by block
     widgets.
@@ -11627,6 +12264,17 @@ class EditorView {
     */
     moveByGroup(start, forward) {
         return skipAtoms(this, start, moveByChar(this, start, forward, initial => byGroup(this, start.head, initial)));
+    }
+    /**
+    Get the cursor position visually at the start or end of a line.
+    Note that this may differ from the _logical_ position at its
+    start or end (which is simply at `line.from`/`line.to`) if text
+    at the start or end goes against the line's base text direction.
+    */
+    visualLineSide(line, end) {
+        let order = this.bidiSpans(line), dir = this.textDirectionAt(line.from);
+        let span = order[end ? order.length - 1 : 0];
+        return EditorSelection.cursor(span.side(end, dir) + line.from, span.forward(!end, dir) ? 1 : -1);
     }
     /**
     Move to the next line boundary in the given direction. If
@@ -11760,11 +12408,11 @@ class EditorView {
         let dir = this.textDirectionAt(line.from), isolates;
         for (let entry of this.bidiCache) {
             if (entry.from == line.from && entry.dir == dir &&
-                (entry.fresh || isolatesEq(entry.isolates, isolates = getIsolatedRanges(this, line.from, line.to))))
+                (entry.fresh || isolatesEq(entry.isolates, isolates = getIsolatedRanges(this, line))))
                 return entry.order;
         }
         if (!isolates)
-            isolates = getIsolatedRanges(this, line.from, line.to);
+            isolates = getIsolatedRanges(this, line);
         let order = computeOrder(line.text, dir, isolates);
         this.bidiCache.push(new CachedOrder(line.from, line.to, dir, isolates, true, order));
         return order;
@@ -11808,6 +12456,8 @@ class EditorView {
     calling this.
     */
     destroy() {
+        if (this.root.activeElement == this.contentDOM)
+            this.contentDOM.blur();
         for (let plugin of this.plugins)
             plugin.destroy(this);
         this.plugins = [];
@@ -11825,7 +12475,7 @@ class EditorView {
     cause it to scroll the given position or range into view.
     */
     static scrollIntoView(pos, options = {}) {
-        return scrollIntoView.of(new ScrollTarget(typeof pos == "number" ? EditorSelection.cursor(pos) : pos, options.y, options.x, options.yMargin, options.xMargin));
+        return scrollIntoView$1.of(new ScrollTarget(typeof pos == "number" ? EditorSelection.cursor(pos) : pos, options.y, options.x, options.yMargin, options.xMargin));
     }
     /**
     Return an effect that resets the editor to its current (at the
@@ -11842,7 +12492,26 @@ class EditorView {
     scrollSnapshot() {
         let { scrollTop, scrollLeft } = this.scrollDOM;
         let ref = this.viewState.scrollAnchorAt(scrollTop);
-        return scrollIntoView.of(new ScrollTarget(EditorSelection.cursor(ref.from), "start", "start", ref.top - scrollTop, scrollLeft, true));
+        return scrollIntoView$1.of(new ScrollTarget(EditorSelection.cursor(ref.from), "start", "start", ref.top - scrollTop, scrollLeft, true));
+    }
+    /**
+    Enable or disable tab-focus mode, which disables key bindings
+    for Tab and Shift-Tab, letting the browser's default
+    focus-changing behavior go through instead. This is useful to
+    prevent trapping keyboard users in your editor.
+    
+    Without argument, this toggles the mode. With a boolean, it
+    enables (true) or disables it (false). Given a number, it
+    temporarily enables the mode until that number of milliseconds
+    have passed or another non-Tab key is pressed.
+    */
+    setTabFocusMode(to) {
+        if (to == null)
+            this.inputState.tabFocusMode = this.inputState.tabFocusMode < 0 ? 0 : -1;
+        else if (typeof to == "boolean")
+            this.inputState.tabFocusMode = to ? 0 : -1;
+        else if (this.inputState.tabFocusMode != 0)
+            this.inputState.tabFocusMode = Date.now() + to;
     }
     /**
     Returns an extension that can be used to add DOM event handlers.
@@ -11935,7 +12604,23 @@ The `insert` argument can be used to get the default transaction
 that would be applied for this input. This can be useful when
 dispatching the custom behavior as a separate transaction.
 */
-EditorView.inputHandler = inputHandler;
+EditorView.inputHandler = inputHandler$1;
+/**
+Functions provided in this facet will be used to transform text
+pasted or dropped into the editor.
+*/
+EditorView.clipboardInputFilter = clipboardInputFilter;
+/**
+Transform text copied or dragged from the editor.
+*/
+EditorView.clipboardOutputFilter = clipboardOutputFilter;
+/**
+Scroll handlers can override how things are scrolled into view.
+If they return `true`, no further handling happens for the
+scrolling. If they return false, the default scroll behavior is
+applied. Scroll handlers should never initiate editor updates.
+*/
+EditorView.scrollHandler = scrollHandler;
 /**
 This facet can be used to provide functions that create effects
 to be dispatched when the editor's focus state changes.
@@ -12008,6 +12693,16 @@ containing the decorations to
 [`EditorView.atomicRanges`](https://codemirror.net/6/docs/ref/#view.EditorView^atomicRanges).
 */
 EditorView.decorations = decorations;
+/**
+Facet that works much like
+[`decorations`](https://codemirror.net/6/docs/ref/#view.EditorView^decorations), but puts its
+inputs at the very bottom of the precedence stack, meaning mark
+decorations provided here will only be split by other, partially
+overlapping \`outerDecorations\` ranges, and wrap around all
+regular decorations. Use this for mark elements that should, as
+much as possible, remain in one piece.
+*/
+EditorView.outerDecorations = outerDecorations;
 /**
 Used to provide ranges that should be treated as atoms as far as
 cursor motion is concerned. This causes methods like
@@ -12239,8 +12934,9 @@ function buildKeymap(bindings, platform = currentPlatform) {
                 let scopeObj = bound[scope] || (bound[scope] = Object.create(null));
                 if (!scopeObj._any)
                     scopeObj._any = { preventDefault: false, stopPropagation: false, run: [] };
+                let { any } = b;
                 for (let key in scopeObj)
-                    scopeObj[key].run.push(b.any);
+                    scopeObj[key].run.push(view => any(view, currentKeyEvent));
             }
         let name = b[platform] || b.key;
         if (!name)
@@ -12253,7 +12949,9 @@ function buildKeymap(bindings, platform = currentPlatform) {
     }
     return bound;
 }
+let currentKeyEvent = null;
 function runHandlers(map, event, view, scope) {
+    currentKeyEvent = event;
     let name = keyName(event);
     let charCode = codePointAt(name, 0), isChar = codePointSize(charCode) == name.length && name != " ";
     let prefix = "", handled = false, prevented = false, stopPropagation = false;
@@ -12270,7 +12968,7 @@ function runHandlers(map, event, view, scope) {
             for (let cmd of binding.run)
                 if (!ran.has(cmd)) {
                     ran.add(cmd);
-                    if (cmd(view, event)) {
+                    if (cmd(view)) {
                         if (binding.stopPropagation)
                             stopPropagation = true;
                         return true;
@@ -12312,6 +13010,7 @@ function runHandlers(map, event, view, scope) {
         handled = true;
     if (handled && stopPropagation)
         event.stopPropagation();
+    currentKeyEvent = null;
     return handled;
 }
 
@@ -12395,11 +13094,17 @@ function getBase(view) {
     let left = view.textDirection == exports.Direction.LTR ? rect.left : rect.right - view.scrollDOM.clientWidth * view.scaleX;
     return { left: left - view.scrollDOM.scrollLeft * view.scaleX, top: rect.top - view.scrollDOM.scrollTop * view.scaleY };
 }
-function wrappedLine(view, pos, inside) {
-    let range = EditorSelection.cursor(pos);
-    return { from: Math.max(inside.from, view.moveToLineBoundary(range, false, true).from),
-        to: Math.min(inside.to, view.moveToLineBoundary(range, true, true).from),
-        type: exports.BlockType.Text };
+function wrappedLine(view, pos, side, inside) {
+    let coords = view.coordsAtPos(pos, side * 2);
+    if (!coords)
+        return inside;
+    let editorRect = view.dom.getBoundingClientRect();
+    let y = (coords.top + coords.bottom) / 2;
+    let left = view.posAtCoords({ x: editorRect.left + 1, y });
+    let right = view.posAtCoords({ x: editorRect.right - 1, y });
+    if (left == null || right == null)
+        return inside;
+    return { from: Math.max(inside.from, Math.min(left, right)), to: Math.min(inside.to, Math.max(left, right)) };
 }
 function rectanglesForRange(view, className, range) {
     if (range.to <= view.viewport.from || range.from >= view.viewport.to)
@@ -12415,10 +13120,10 @@ function rectanglesForRange(view, className, range) {
     let visualStart = startBlock.type == exports.BlockType.Text ? startBlock : null;
     let visualEnd = endBlock.type == exports.BlockType.Text ? endBlock : null;
     if (visualStart && (view.lineWrapping || startBlock.widgetLineBreaks))
-        visualStart = wrappedLine(view, from, visualStart);
+        visualStart = wrappedLine(view, from, 1, visualStart);
     if (visualEnd && (view.lineWrapping || endBlock.widgetLineBreaks))
-        visualEnd = wrappedLine(view, to, visualEnd);
-    if (visualStart && visualEnd && visualStart.from == visualEnd.from) {
+        visualEnd = wrappedLine(view, to, -1, visualEnd);
+    if (visualStart && visualEnd && visualStart.from == visualEnd.from && visualStart.to == visualEnd.to) {
         return pieces(drawForLine(range.from, range.to, visualStart));
     }
     else {
@@ -12433,7 +13138,7 @@ function rectanglesForRange(view, className, range) {
         return pieces(top).concat(between).concat(pieces(bottom));
     }
     function piece(left, top, right, bottom) {
-        return new RectangleMarker(className, left - base.left, top - base.top - 0.01 /* C.Epsilon */, right - left, bottom - top + 0.01 /* C.Epsilon */);
+        return new RectangleMarker(className, left - base.left, top - base.top, right - left, bottom - top);
     }
     function pieces({ top, bottom, horizontal }) {
         let pieces = [];
@@ -12519,6 +13224,10 @@ class LayerView {
             update.view.requestMeasure(this.measureReq);
         }
     }
+    docViewUpdate(view) {
+        if (this.layer.updateOnDocViewUpdate !== false)
+            view.requestMeasure(this.measureReq);
+    }
     setOrder(state) {
         let pos = 0, order = state.facet(layerOrder);
         while (pos < order.length && order[pos] != this.layer)
@@ -12574,7 +13283,6 @@ function layer(config) {
     ];
 }
 
-const CanHidePrimary = !browser.ios; // FIXME test IE
 const selectionConfig = /*@__PURE__*/Facet.define({
     combine(configs) {
         return combineConfig(configs, {
@@ -12631,7 +13339,7 @@ const cursorLayer = /*@__PURE__*/layer({
         let cursors = [];
         for (let r of state.selection.ranges) {
             let prim = r == state.selection.main;
-            if (r.empty ? !prim || CanHidePrimary : conf.drawRangeCursor) {
+            if (r.empty || conf.drawRangeCursor) {
                 let className = prim ? "cm-cursor cm-cursor-primary" : "cm-cursor cm-cursor-secondary";
                 let cursor = r.empty ? r : EditorSelection.cursor(r.head, r.head > r.anchor ? -1 : 1);
                 for (let piece of RectangleMarker.forRange(view, className, cursor))
@@ -12667,17 +13375,21 @@ const selectionLayer = /*@__PURE__*/layer({
     },
     class: "cm-selectionLayer"
 });
-const themeSpec = {
+const hideNativeSelection = /*@__PURE__*/Prec.highest(/*@__PURE__*/EditorView.theme({
     ".cm-line": {
-        "& ::selection": { backgroundColor: "transparent !important" },
-        "&::selection": { backgroundColor: "transparent !important" }
+        "& ::selection, &::selection": { backgroundColor: "transparent !important" },
+        caretColor: "transparent !important"
+    },
+    ".cm-content": {
+        caretColor: "transparent !important",
+        "& :focus": {
+            caretColor: "initial !important",
+            "&::selection, & ::selection": {
+                backgroundColor: "Highlight !important"
+            }
+        }
     }
-};
-if (CanHidePrimary) {
-    themeSpec[".cm-line"].caretColor = "transparent !important";
-    themeSpec[".cm-content"] = { caretColor: "transparent !important" };
-}
-const hideNativeSelection = /*@__PURE__*/Prec.highest(/*@__PURE__*/EditorView.theme(themeSpec));
+}));
 
 const setDropCursorPos = /*@__PURE__*/StateEffect.define({
     map(pos, mapping) { return pos == null ? null : mapping.mapPos(pos); }
@@ -12851,12 +13563,12 @@ class MatchDecorator {
         let changeFrom = 1e9, changeTo = -1;
         if (update.docChanged)
             update.changes.iterChanges((_f, _t, from, to) => {
-                if (to > update.view.viewport.from && from < update.view.viewport.to) {
+                if (to >= update.view.viewport.from && from <= update.view.viewport.to) {
                     changeFrom = Math.min(from, changeFrom);
                     changeTo = Math.max(to, changeTo);
                 }
             });
-        if (update.viewportChanged || changeTo - changeFrom > 1000)
+        if (update.viewportMoved || changeTo - changeFrom > 1000)
             return this.createDeco(update.view);
         if (changeTo > -1)
             return this.updateRange(update.view, deco.map(update.changes), changeFrom, changeTo);
@@ -13054,7 +13766,7 @@ const plugin = /*@__PURE__*/ViewPlugin.fromClass(class {
     }
     update(update) {
         let { view } = update;
-        let height = view.viewState.editorHeight * view.scaleY -
+        let height = view.viewState.editorHeight -
             view.defaultLineHeight - view.documentPadding.top - 0.5;
         if (height >= 0 && height != this.height) {
             this.height = height;
@@ -13111,11 +13823,13 @@ class Placeholder extends WidgetType {
         super();
         this.content = content;
     }
-    toDOM() {
+    toDOM(view) {
         let wrap = document.createElement("span");
         wrap.className = "cm-placeholder";
         wrap.style.pointerEvents = "none";
-        wrap.appendChild(typeof this.content == "string" ? document.createTextNode(this.content) : this.content);
+        wrap.appendChild(typeof this.content == "string" ? document.createTextNode(this.content) :
+            typeof this.content == "function" ? this.content(view) :
+                this.content.cloneNode(true));
         if (typeof this.content == "string")
             wrap.setAttribute("aria-label", "placeholder " + this.content);
         else
@@ -13280,12 +13994,14 @@ function crosshairCursor(options = {}) {
 
 const Outside = "-10000px";
 class TooltipViewManager {
-    constructor(view, facet, createTooltipView) {
+    constructor(view, facet, createTooltipView, removeTooltipView) {
         this.facet = facet;
         this.createTooltipView = createTooltipView;
+        this.removeTooltipView = removeTooltipView;
         this.input = view.state.facet(facet);
         this.tooltips = this.input.filter(t => t);
-        this.tooltipViews = this.tooltips.map(createTooltipView);
+        let prev = null;
+        this.tooltipViews = this.tooltips.map(t => prev = createTooltipView(t, prev));
     }
     update(update, above) {
         var _a;
@@ -13308,7 +14024,7 @@ class TooltipViewManager {
                     known = i;
             }
             if (known < 0) {
-                tooltipViews[i] = this.createTooltipView(tip);
+                tooltipViews[i] = this.createTooltipView(tip, i ? tooltipViews[i - 1] : null);
                 if (newAbove)
                     newAbove[i] = !!tip.above;
             }
@@ -13322,7 +14038,7 @@ class TooltipViewManager {
         }
         for (let t of this.tooltipViews)
             if (tooltipViews.indexOf(t) < 0) {
-                t.dom.remove();
+                this.removeTooltipView(t);
                 (_a = t.destroy) === null || _a === void 0 ? void 0 : _a.call(t);
             }
         if (above) {
@@ -13342,8 +14058,8 @@ function tooltips(config = {}) {
     return tooltipConfig.of(config);
 }
 function windowSpace(view) {
-    let { win } = view;
-    return { top: 0, left: 0, bottom: win.innerHeight, right: win.innerWidth };
+    let docElt = view.dom.ownerDocument.documentElement;
+    return { top: 0, left: 0, bottom: docElt.clientHeight, right: docElt.clientWidth };
 }
 const tooltipConfig = /*@__PURE__*/Facet.define({
     combine: values => {
@@ -13370,7 +14086,13 @@ const tooltipPlugin = /*@__PURE__*/ViewPlugin.fromClass(class {
         this.classes = view.themeClasses;
         this.createContainer();
         this.measureReq = { read: this.readMeasure.bind(this), write: this.writeMeasure.bind(this), key: this };
-        this.manager = new TooltipViewManager(view, showTooltip, t => this.createTooltip(t));
+        this.resizeObserver = typeof ResizeObserver == "function" ? new ResizeObserver(() => this.measureSoon()) : null;
+        this.manager = new TooltipViewManager(view, showTooltip, (t, p) => this.createTooltip(t, p), t => {
+            if (this.resizeObserver)
+                this.resizeObserver.unobserve(t.dom);
+            t.dom.remove();
+        });
+        this.above = this.manager.tooltips.map(t => !!t.above);
         this.intersectionObserver = typeof IntersectionObserver == "function" ? new IntersectionObserver(entries => {
             if (Date.now() > this.lastTransaction - 50 &&
                 entries.length > 0 && entries[entries.length - 1].intersectionRatio < 1)
@@ -13434,8 +14156,9 @@ const tooltipPlugin = /*@__PURE__*/ViewPlugin.fromClass(class {
         if (shouldMeasure)
             this.maybeMeasure();
     }
-    createTooltip(tooltip) {
+    createTooltip(tooltip, prev) {
         let tooltipView = tooltip.create(this.view);
+        let before = prev ? prev.dom : null;
         tooltipView.dom.classList.add("cm-tooltip");
         if (tooltip.arrow && !tooltipView.dom.querySelector(".cm-tooltip > .cm-tooltip-arrow")) {
             let arrow = document.createElement("div");
@@ -13445,13 +14168,15 @@ const tooltipPlugin = /*@__PURE__*/ViewPlugin.fromClass(class {
         tooltipView.dom.style.position = this.position;
         tooltipView.dom.style.top = Outside;
         tooltipView.dom.style.left = "0px";
-        this.container.appendChild(tooltipView.dom);
+        this.container.insertBefore(tooltipView.dom, before);
         if (tooltipView.mount)
             tooltipView.mount(this.view);
+        if (this.resizeObserver)
+            this.resizeObserver.observe(tooltipView.dom);
         return tooltipView;
     }
     destroy() {
-        var _a, _b;
+        var _a, _b, _c;
         this.view.win.removeEventListener("resize", this.measureSoon);
         for (let tooltipView of this.manager.tooltipViews) {
             tooltipView.dom.remove();
@@ -13459,11 +14184,11 @@ const tooltipPlugin = /*@__PURE__*/ViewPlugin.fromClass(class {
         }
         if (this.parent)
             this.container.remove();
-        (_b = this.intersectionObserver) === null || _b === void 0 ? void 0 : _b.disconnect();
+        (_b = this.resizeObserver) === null || _b === void 0 ? void 0 : _b.disconnect();
+        (_c = this.intersectionObserver) === null || _c === void 0 ? void 0 : _c.disconnect();
         clearTimeout(this.measureTimeout);
     }
     readMeasure() {
-        let editor = this.view.dom.getBoundingClientRect();
         let scaleX = 1, scaleY = 1, makeAbsolute = false;
         if (this.position == "fixed" && this.manager.tooltipViews.length) {
             let { dom } = this.manager.tooltipViews[0];
@@ -13473,16 +14198,11 @@ const tooltipPlugin = /*@__PURE__*/ViewPlugin.fromClass(class {
                 // positioning.
                 makeAbsolute = dom.offsetParent != this.container.ownerDocument.body;
             }
-            else {
+            else if (dom.style.top == Outside && dom.style.left == "0px") {
                 // On other browsers, we have to awkwardly try and use other
                 // information to detect a transform.
-                if (this.view.scaleX != 1 || this.view.scaleY != 1) {
-                    makeAbsolute = true;
-                }
-                else if (dom.style.top == Outside && dom.style.left == "0px") {
-                    let rect = dom.getBoundingClientRect();
-                    makeAbsolute = Math.abs(rect.top + 10000) > 1 || Math.abs(rect.left) > 1;
-                }
+                let rect = dom.getBoundingClientRect();
+                makeAbsolute = Math.abs(rect.top + 10000) > 1 || Math.abs(rect.left) > 1;
             }
         }
         if (makeAbsolute || this.position == "absolute") {
@@ -13497,9 +14217,13 @@ const tooltipPlugin = /*@__PURE__*/ViewPlugin.fromClass(class {
                 ({ scaleX, scaleY } = this.view.viewState);
             }
         }
+        let visible = this.view.scrollDOM.getBoundingClientRect(), margins = getScrollMargins(this.view);
         return {
-            editor,
-            parent: this.parent ? this.container.getBoundingClientRect() : editor,
+            visible: {
+                left: visible.left + margins.left, top: visible.top + margins.top,
+                right: visible.right - margins.right, bottom: visible.bottom - margins.bottom
+            },
+            parent: this.parent ? this.container.getBoundingClientRect() : this.view.dom.getBoundingClientRect(),
             pos: this.manager.tooltips.map((t, i) => {
                 let tv = this.manager.tooltipViews[i];
                 return tv.getCoords ? tv.getCoords(t.pos) : this.view.coordsAtPos(t.pos);
@@ -13517,16 +14241,16 @@ const tooltipPlugin = /*@__PURE__*/ViewPlugin.fromClass(class {
             for (let t of this.manager.tooltipViews)
                 t.dom.style.position = "absolute";
         }
-        let { editor, space, scaleX, scaleY } = measured;
+        let { visible, space, scaleX, scaleY } = measured;
         let others = [];
         for (let i = 0; i < this.manager.tooltips.length; i++) {
             let tooltip = this.manager.tooltips[i], tView = this.manager.tooltipViews[i], { dom } = tView;
             let pos = measured.pos[i], size = measured.size[i];
             // Hide tooltips that are outside of the editor.
-            if (!pos || pos.bottom <= Math.max(editor.top, space.top) ||
-                pos.top >= Math.min(editor.bottom, space.bottom) ||
-                pos.right < Math.max(editor.left, space.left) - .1 ||
-                pos.left > Math.min(editor.right, space.right) + .1) {
+            if (!pos || tooltip.clip !== false && (pos.bottom <= Math.max(visible.top, space.top) ||
+                pos.top >= Math.min(visible.bottom, space.bottom) ||
+                pos.right < Math.max(visible.left, space.left) - .1 ||
+                pos.left > Math.min(visible.right, space.right) + .1)) {
                 dom.style.top = Outside;
                 continue;
             }
@@ -13534,13 +14258,14 @@ const tooltipPlugin = /*@__PURE__*/ViewPlugin.fromClass(class {
             let arrowHeight = arrow ? 7 /* Arrow.Size */ : 0;
             let width = size.right - size.left, height = (_a = knownHeight.get(tView)) !== null && _a !== void 0 ? _a : size.bottom - size.top;
             let offset = tView.offset || noOffset, ltr = this.view.textDirection == exports.Direction.LTR;
-            let left = size.width > space.right - space.left ? (ltr ? space.left : space.right - size.width)
-                : ltr ? Math.min(pos.left - (arrow ? 14 /* Arrow.Offset */ : 0) + offset.x, space.right - width)
-                    : Math.max(space.left, pos.left - width + (arrow ? 14 /* Arrow.Offset */ : 0) - offset.x);
+            let left = size.width > space.right - space.left
+                ? (ltr ? space.left : space.right - size.width)
+                : ltr ? Math.max(space.left, Math.min(pos.left - (arrow ? 14 /* Arrow.Offset */ : 0) + offset.x, space.right - width))
+                    : Math.min(Math.max(space.left, pos.left - width + (arrow ? 14 /* Arrow.Offset */ : 0) - offset.x), space.right - width);
             let above = this.above[i];
             if (!tooltip.strictSide && (above
-                ? pos.top - (size.bottom - size.top) - offset.y < space.top
-                : pos.bottom + (size.bottom - size.top) + offset.y > space.bottom) &&
+                ? pos.top - height - arrowHeight - offset.y < space.top
+                : pos.bottom + height + arrowHeight + offset.y > space.bottom) &&
                 above == (space.bottom - pos.bottom > pos.top - space.top))
                 above = this.above[i] = !above;
             let spaceVert = (above ? pos.top - space.top : space.bottom - pos.bottom) - arrowHeight;
@@ -13563,11 +14288,11 @@ const tooltipPlugin = /*@__PURE__*/ViewPlugin.fromClass(class {
                         top = above ? r.top - height - 2 - arrowHeight : r.bottom + arrowHeight + 2;
             if (this.position == "absolute") {
                 dom.style.top = (top - measured.parent.top) / scaleY + "px";
-                dom.style.left = (left - measured.parent.left) / scaleX + "px";
+                setLeftStyle(dom, (left - measured.parent.left) / scaleX);
             }
             else {
                 dom.style.top = top / scaleY + "px";
-                dom.style.left = left / scaleX + "px";
+                setLeftStyle(dom, left / scaleX);
             }
             if (arrow) {
                 let arrowLeft = pos.left + (ltr ? offset.x : -offset.x) - (left + 14 /* Arrow.Offset */ - 7 /* Arrow.Size */);
@@ -13598,9 +14323,14 @@ const tooltipPlugin = /*@__PURE__*/ViewPlugin.fromClass(class {
         scroll() { this.maybeMeasure(); }
     }
 });
-const baseTheme$3 = /*@__PURE__*/EditorView.baseTheme({
+function setLeftStyle(elt, value) {
+    let current = parseInt(elt.style.left, 10);
+    if (isNaN(current) || Math.abs(value - current) > 1)
+        elt.style.left = value + "px";
+}
+const baseTheme$5 = /*@__PURE__*/EditorView.baseTheme({
     ".cm-tooltip": {
-        zIndex: 100,
+        zIndex: 500,
         boxSizing: "border-box"
     },
     "&light .cm-tooltip": {
@@ -13665,9 +14395,11 @@ const noOffset = { x: 0, y: 0 };
 Facet to which an extension can add a value to show a tooltip.
 */
 const showTooltip = /*@__PURE__*/Facet.define({
-    enables: [tooltipPlugin, baseTheme$3]
+    enables: [tooltipPlugin, baseTheme$5]
 });
-const showHoverTooltip = /*@__PURE__*/Facet.define();
+const showHoverTooltip = /*@__PURE__*/Facet.define({
+    combine: inputs => inputs.reduce((a, i) => a.concat(i), [])
+});
 class HoverTooltipHost {
     // Needs to be static so that host tooltip instances always match
     static create(view) {
@@ -13678,12 +14410,12 @@ class HoverTooltipHost {
         this.mounted = false;
         this.dom = document.createElement("div");
         this.dom.classList.add("cm-tooltip-hover");
-        this.manager = new TooltipViewManager(view, showHoverTooltip, t => this.createHostedView(t));
+        this.manager = new TooltipViewManager(view, showHoverTooltip, (t, p) => this.createHostedView(t, p), t => t.dom.remove());
     }
-    createHostedView(tooltip) {
+    createHostedView(tooltip, prev) {
         let hostedView = tooltip.create(this.view);
         hostedView.dom.classList.add("cm-tooltip-section");
-        this.dom.appendChild(hostedView.dom);
+        this.dom.insertBefore(hostedView.dom, prev ? prev.dom.nextSibling : this.dom.firstChild);
         if (this.mounted && hostedView.mount)
             hostedView.mount(this.view);
         return hostedView;
@@ -13728,7 +14460,7 @@ class HoverTooltipHost {
     get resize() { return this.passProp("resize"); }
 }
 const showHoverTooltipHost = /*@__PURE__*/showTooltip.compute([showHoverTooltip], state => {
-    let tooltips = state.facet(showHoverTooltip).filter(t => t);
+    let tooltips = state.facet(showHoverTooltip);
     if (tooltips.length === 0)
         return null;
     return {
@@ -13766,7 +14498,7 @@ class HoverPlugin {
     }
     checkHover() {
         this.hoverTimeout = -1;
-        if (this.active)
+        if (this.active.length)
             return;
         let hovered = Date.now() - this.lastMove.time;
         if (hovered < this.hoverTime)
@@ -13804,13 +14536,13 @@ class HoverPlugin {
             open.then(result => {
                 if (this.pending == pending) {
                     this.pending = null;
-                    if (result)
-                        view.dispatch({ effects: this.setHover.of(result) });
+                    if (result && !(Array.isArray(result) && !result.length))
+                        view.dispatch({ effects: this.setHover.of(Array.isArray(result) ? result : [result]) });
                 }
             }, e => logException(view.state, e, "hover tooltip"));
         }
-        else if (open) {
-            view.dispatch({ effects: this.setHover.of(open) });
+        else if (open && !(Array.isArray(open) && !open.length)) {
+            view.dispatch({ effects: this.setHover.of(Array.isArray(open) ? open : [open]) });
         }
     }
     get tooltip() {
@@ -13819,16 +14551,16 @@ class HoverPlugin {
         return index > -1 ? plugin.manager.tooltipViews[index] : null;
     }
     mousemove(event) {
-        var _a;
+        var _a, _b;
         this.lastMove = { x: event.clientX, y: event.clientY, target: event.target, time: Date.now() };
         if (this.hoverTimeout < 0)
             this.hoverTimeout = setTimeout(this.checkHover, this.hoverTime);
         let { active, tooltip } = this;
-        if (active && tooltip && !isInTooltip(tooltip.dom, event) || this.pending) {
-            let { pos } = active || this.pending, end = (_a = active === null || active === void 0 ? void 0 : active.end) !== null && _a !== void 0 ? _a : pos;
+        if (active.length && tooltip && !isInTooltip(tooltip.dom, event) || this.pending) {
+            let { pos } = active[0] || this.pending, end = (_b = (_a = active[0]) === null || _a === void 0 ? void 0 : _a.end) !== null && _b !== void 0 ? _b : pos;
             if ((pos == end ? this.view.posAtCoords(this.lastMove) != pos
                 : !isOverRange(this.view, pos, end, event.clientX, event.clientY))) {
-                this.view.dispatch({ effects: this.setHover.of(null) });
+                this.view.dispatch({ effects: this.setHover.of([]) });
                 this.pending = null;
             }
         }
@@ -13837,11 +14569,11 @@ class HoverPlugin {
         clearTimeout(this.hoverTimeout);
         this.hoverTimeout = -1;
         let { active } = this;
-        if (active) {
+        if (active.length) {
             let { tooltip } = this;
             let inTooltip = tooltip && tooltip.dom.contains(event.relatedTarget);
             if (!inTooltip)
-                this.view.dispatch({ effects: this.setHover.of(null) });
+                this.view.dispatch({ effects: this.setHover.of([]) });
             else
                 this.watchTooltipLeave(tooltip.dom);
         }
@@ -13849,8 +14581,8 @@ class HoverPlugin {
     watchTooltipLeave(tooltip) {
         let watch = (event) => {
             tooltip.removeEventListener("mouseleave", watch);
-            if (this.active && !this.view.dom.contains(event.relatedTarget))
-                this.view.dispatch({ effects: this.setHover.of(null) });
+            if (this.active.length && !this.view.dom.contains(event.relatedTarget))
+                this.view.dispatch({ effects: this.setHover.of([]) });
         };
         tooltip.addEventListener("mouseleave", watch);
     }
@@ -13862,9 +14594,14 @@ class HoverPlugin {
 }
 const tooltipMargin = 4;
 function isInTooltip(tooltip, event) {
-    let rect = tooltip.getBoundingClientRect();
-    return event.clientX >= rect.left - tooltipMargin && event.clientX <= rect.right + tooltipMargin &&
-        event.clientY >= rect.top - tooltipMargin && event.clientY <= rect.bottom + tooltipMargin;
+    let { left, right, top, bottom } = tooltip.getBoundingClientRect(), arrow;
+    if (arrow = tooltip.querySelector(".cm-tooltip-arrow")) {
+        let arrowRect = arrow.getBoundingClientRect();
+        top = Math.min(arrowRect.top, top);
+        bottom = Math.max(arrowRect.bottom, bottom);
+    }
+    return event.clientX >= left - tooltipMargin && event.clientX <= right + tooltipMargin &&
+        event.clientY >= top - tooltipMargin && event.clientY <= bottom + tooltipMargin;
 }
 function isOverRange(view, from, to, x, y, margin) {
     let rect = view.scrollDOM.getBoundingClientRect();
@@ -13886,40 +14623,55 @@ pointer is before the position, 1 if after the position.
 Note that all hover tooltips are hosted within a single tooltip
 container element. This allows multiple tooltips over the same
 range to be "merged" together without overlapping.
+
+The return value is a valid [editor extension](https://codemirror.net/6/docs/ref/#state.Extension)
+but also provides an `active` property holding a state field that
+can be used to read the currently active tooltips produced by this
+extension.
 */
 function hoverTooltip(source, options = {}) {
     let setHover = StateEffect.define();
     let hoverState = StateField.define({
-        create() { return null; },
+        create() { return []; },
         update(value, tr) {
-            if (value && (options.hideOnChange && (tr.docChanged || tr.selection) ||
-                options.hideOn && options.hideOn(tr, value)))
-                return null;
-            if (value && tr.docChanged) {
-                let newPos = tr.changes.mapPos(value.pos, -1, exports.MapMode.TrackDel);
-                if (newPos == null)
-                    return null;
-                let copy = Object.assign(Object.create(null), value);
-                copy.pos = newPos;
-                if (value.end != null)
-                    copy.end = tr.changes.mapPos(value.end);
-                value = copy;
+            if (value.length) {
+                if (options.hideOnChange && (tr.docChanged || tr.selection))
+                    value = [];
+                else if (options.hideOn)
+                    value = value.filter(v => !options.hideOn(tr, v));
+                if (tr.docChanged) {
+                    let mapped = [];
+                    for (let tooltip of value) {
+                        let newPos = tr.changes.mapPos(tooltip.pos, -1, exports.MapMode.TrackDel);
+                        if (newPos != null) {
+                            let copy = Object.assign(Object.create(null), tooltip);
+                            copy.pos = newPos;
+                            if (copy.end != null)
+                                copy.end = tr.changes.mapPos(copy.end);
+                            mapped.push(copy);
+                        }
+                    }
+                    value = mapped;
+                }
             }
             for (let effect of tr.effects) {
                 if (effect.is(setHover))
                     value = effect.value;
                 if (effect.is(closeHoverTooltipEffect))
-                    value = null;
+                    value = [];
             }
             return value;
         },
         provide: f => showHoverTooltip.from(f)
     });
-    return [
-        hoverState,
-        ViewPlugin.define(view => new HoverPlugin(view, source, hoverState, setHover, options.hoverTime || 300 /* Hover.Time */)),
-        showHoverTooltipHost
-    ];
+    return {
+        active: hoverState,
+        extension: [
+            hoverState,
+            ViewPlugin.define(view => new HoverPlugin(view, source, hoverState, setHover, options.hoverTime || 300 /* Hover.Time */)),
+            showHoverTooltipHost
+        ]
+    };
 }
 /**
 Get the active tooltip view for a given tooltip, if available.
@@ -14164,7 +14916,12 @@ Markers given to this facet should _only_ define an
 in all gutters for the line).
 */
 const gutterLineClass = /*@__PURE__*/Facet.define();
-const defaults = {
+/**
+Facet used to add a class to all gutter elements next to a widget.
+Should not provide widgets with a `toDOM` method.
+*/
+const gutterWidgetClass = /*@__PURE__*/Facet.define();
+const defaults$1 = {
     class: "",
     renderEmptyElements: false,
     elementStyle: "",
@@ -14182,7 +14939,7 @@ Define an editor gutter. The order in which the gutters appear is
 determined by their extension priority.
 */
 function gutter(config) {
-    return [gutters(), activeGutters.of(Object.assign(Object.assign({}, defaults), config))];
+    return [gutters(), activeGutters.of(Object.assign(Object.assign({}, defaults$1), config))];
 }
 const unfixGutters = /*@__PURE__*/Facet.define({
     combine: values => values.some(x => x)
@@ -14235,8 +14992,9 @@ const gutterView = /*@__PURE__*/ViewPlugin.fromClass(class {
             let vpOverlap = Math.min(vpA.to, vpB.to) - Math.max(vpA.from, vpB.from);
             this.syncGutters(vpOverlap < (vpB.to - vpB.from) * 0.8);
         }
-        if (update.geometryChanged)
-            this.dom.style.minHeight = this.view.contentHeight + "px";
+        if (update.geometryChanged) {
+            this.dom.style.minHeight = (this.view.contentHeight / this.view.scaleY) + "px";
+        }
         if (this.view.state.facet(unfixGutters) != !this.fixed) {
             this.fixed = !this.fixed;
             this.dom.style.position = this.fixed ? "sticky" : "";
@@ -14373,9 +15131,14 @@ class UpdateContext {
         this.addElement(view, line, localMarkers);
     }
     widget(view, block) {
-        let marker = this.gutter.config.widgetMarker(view, block.widget, block);
-        if (marker)
-            this.addElement(view, block, [marker]);
+        let marker = this.gutter.config.widgetMarker(view, block.widget, block), markers = marker ? [marker] : null;
+        for (let cls of view.state.facet(gutterWidgetClass)) {
+            let marker = cls(view, block.widget, block);
+            if (marker)
+                (markers || (markers = [])).push(marker);
+        }
+        if (markers)
+            this.addElement(view, block, markers);
     }
     finish() {
         let gutter = this.gutter;
@@ -14511,6 +15274,10 @@ function sameMarkers(a, b) {
 Facet used to provide markers to the line number gutter.
 */
 const lineNumberMarkers = /*@__PURE__*/Facet.define();
+/**
+Facet used to create markers in the line number gutter next to widgets.
+*/
+const lineNumberWidgetMarker = /*@__PURE__*/Facet.define();
 const lineNumberConfig = /*@__PURE__*/Facet.define({
     combine(values) {
         return combineConfig(values, { formatNumber: String, domEventHandlers: {} }, {
@@ -14545,7 +15312,14 @@ const lineNumberGutter = /*@__PURE__*/activeGutters.compute([lineNumberConfig], 
             return null;
         return new NumberMarker(formatNumber(view, view.state.doc.lineAt(line.from).number));
     },
-    widgetMarker: () => null,
+    widgetMarker: (view, widget, block) => {
+        for (let m of view.state.facet(lineNumberWidgetMarker)) {
+            let result = m(view, widget, block);
+            if (result)
+                return result;
+        }
+        return null;
+    },
     lineMarkerChange: update => update.startState.facet(lineNumberConfig) != update.state.facet(lineNumberConfig),
     initialSpacer(view) {
         return new NumberMarker(formatNumber(view, maxLineNumber(view.state.doc.lines)));
@@ -14598,20 +15372,6 @@ function highlightActiveLineGutter() {
     return activeLineGutterHighlighter;
 }
 
-const WhitespaceDeco = /*@__PURE__*/new Map();
-function getWhitespaceDeco(space) {
-    let deco = WhitespaceDeco.get(space);
-    if (!deco)
-        WhitespaceDeco.set(space, deco = Decoration.mark({
-            attributes: space === "\t" ? {
-                class: "cm-highlightTab",
-            } : {
-                class: "cm-highlightSpace",
-                "data-display": space.replace(/ /g, "·")
-            }
-        }));
-    return deco;
-}
 function matcher(decorator) {
     return ViewPlugin.define(view => ({
         decorations: decorator.createDeco(view),
@@ -14622,9 +15382,11 @@ function matcher(decorator) {
         decorations: v => v.decorations
     });
 }
+const tabDeco = /*@__PURE__*/Decoration.mark({ class: "cm-highlightTab" });
+const spaceDeco = /*@__PURE__*/Decoration.mark({ class: "cm-highlightSpace" });
 const whitespaceHighlighter = /*@__PURE__*/matcher(/*@__PURE__*/new MatchDecorator({
-    regexp: /\t| +/g,
-    decoration: match => getWhitespaceDeco(match[0]),
+    regexp: /\t| /g,
+    decoration: match => match[0] == "\t" ? tabDeco : spaceDeco,
     boundary: /\S/,
 }));
 /**
@@ -14652,7 +15414,8 @@ function highlightTrailingWhitespace() {
 /**
 @internal
 */
-const __test = { HeightMap, HeightOracle, MeasuredHeights, QueryType: QueryType$1, ChangedRange, computeOrder, moveVisually };
+const __test = { HeightMap, HeightOracle, MeasuredHeights, QueryType: QueryType$1, ChangedRange, computeOrder,
+    moveVisually, clearHeightChangeFlag, getHeightChangeFlag: () => heightChangeFlag };
 
 /**
 The default maximum length of a `TreeBuffer` node.
@@ -15346,7 +16109,7 @@ class BaseNode {
         return resolveNode(this, pos, side, true);
     }
     matchContext(context) {
-        return matchNodeContext(this, context);
+        return matchNodeContext(this.parent, context);
     }
     enterUnfinishedNodesBefore(pos) {
         let scan = this.childBefore(pos), node = this;
@@ -15456,9 +16219,11 @@ function getChildren(node, type, before, after) {
     if (!cur.firstChild())
         return result;
     if (before != null)
-        while (!cur.type.is(before))
+        for (let found = false; !found;) {
+            found = cur.type.is(before);
             if (!cur.nextSibling())
                 return result;
+        }
     for (;;) {
         if (after != null && cur.type.is(after))
             return result;
@@ -15469,7 +16234,7 @@ function getChildren(node, type, before, after) {
     }
 }
 function matchNodeContext(node, context, i = context.length - 1) {
-    for (let p = node.parent; i >= 0; p = p.parent) {
+    for (let p = node; i >= 0; p = p.parent) {
         if (!p)
             return false;
         if (!p.type.isAnonymous) {
@@ -15805,7 +16570,7 @@ class TreeCursor {
     */
     next(enter = true) { return this.move(1, enter); }
     /**
-    Move to the next node in a last-to-first pre-order traveral. A
+    Move to the next node in a last-to-first pre-order traversal. A
     node is followed by its last child or, if it has none, its
     previous sibling or the previous sibling of the first parent
     node that has one.
@@ -15881,10 +16646,10 @@ class TreeCursor {
                 if (mustLeave && leave)
                     leave(this);
                 mustLeave = this.type.isAnonymous;
-                if (this.nextSibling())
-                    break;
                 if (!depth)
                     return;
+                if (this.nextSibling())
+                    break;
                 this.parent();
                 depth--;
                 mustLeave = true;
@@ -15898,11 +16663,11 @@ class TreeCursor {
     */
     matchContext(context) {
         if (!this.buffer)
-            return matchNodeContext(this.node, context);
+            return matchNodeContext(this.node.parent, context);
         let { buffer } = this.buffer, { types } = buffer.set;
         for (let i = context.length - 1, d = this.stack.length - 1; i >= 0; d--) {
             if (d < 0)
-                return matchNodeContext(this.node, context, i);
+                return matchNodeContext(this._tree, context, i);
             let type = types[buffer.buffer[this.stack[d]]];
             if (!type.isAnonymous) {
                 if (context[i] && context[i] != type.name)
@@ -15924,7 +16689,7 @@ function buildTree(data) {
     let contextHash = 0, lookAhead = 0;
     function takeNode(parentStart, minPos, children, positions, inRepeat, depth) {
         let { id, start, end, size } = cursor;
-        let lookAheadAtStart = lookAhead;
+        let lookAheadAtStart = lookAhead, contextAtStart = contextHash;
         while (size < 0) {
             cursor.next();
             if (size == -1 /* SpecialRecord.Reuse */) {
@@ -15965,7 +16730,7 @@ function buildTree(data) {
             while (cursor.pos > endPos) {
                 if (localInRepeat >= 0 && cursor.id == localInRepeat && cursor.size >= 0) {
                     if (cursor.end <= lastEnd - maxBufferLength) {
-                        makeRepeatLeaf(localChildren, localPositions, start, lastGroup, cursor.end, lastEnd, localInRepeat, lookAheadAtStart);
+                        makeRepeatLeaf(localChildren, localPositions, start, lastGroup, cursor.end, lastEnd, localInRepeat, lookAheadAtStart, contextAtStart);
                         lastGroup = localChildren.length;
                         lastEnd = cursor.end;
                     }
@@ -15979,15 +16744,15 @@ function buildTree(data) {
                 }
             }
             if (localInRepeat >= 0 && lastGroup > 0 && lastGroup < localChildren.length)
-                makeRepeatLeaf(localChildren, localPositions, start, lastGroup, start, lastEnd, localInRepeat, lookAheadAtStart);
+                makeRepeatLeaf(localChildren, localPositions, start, lastGroup, start, lastEnd, localInRepeat, lookAheadAtStart, contextAtStart);
             localChildren.reverse();
             localPositions.reverse();
             if (localInRepeat > -1 && lastGroup > 0) {
-                let make = makeBalanced(type);
+                let make = makeBalanced(type, contextAtStart);
                 node = balanceRange(type, localChildren, localPositions, 0, localChildren.length, 0, end - start, make, make);
             }
             else {
-                node = makeTree(type, localChildren, localPositions, end - start, lookAheadAtStart - end);
+                node = makeTree(type, localChildren, localPositions, end - start, lookAheadAtStart - end, contextAtStart);
             }
         }
         children.push(node);
@@ -16025,7 +16790,7 @@ function buildTree(data) {
             positions.push(start - parentStart);
         }
     }
-    function makeBalanced(type) {
+    function makeBalanced(type, contextHash) {
         return (children, positions, length) => {
             let lookAhead = 0, lastI = children.length - 1, last, lookAheadProp;
             if (lastI >= 0 && (last = children[lastI]) instanceof Tree) {
@@ -16034,19 +16799,19 @@ function buildTree(data) {
                 if (lookAheadProp = last.prop(NodeProp.lookAhead))
                     lookAhead = positions[lastI] + last.length + lookAheadProp;
             }
-            return makeTree(type, children, positions, length, lookAhead);
+            return makeTree(type, children, positions, length, lookAhead, contextHash);
         };
     }
-    function makeRepeatLeaf(children, positions, base, i, from, to, type, lookAhead) {
+    function makeRepeatLeaf(children, positions, base, i, from, to, type, lookAhead, contextHash) {
         let localChildren = [], localPositions = [];
         while (children.length > i) {
             localChildren.push(children.pop());
             localPositions.push(positions.pop() + base - from);
         }
-        children.push(makeTree(nodeSet.types[type], localChildren, localPositions, to - from, lookAhead - to));
+        children.push(makeTree(nodeSet.types[type], localChildren, localPositions, to - from, lookAhead - to, contextHash));
         positions.push(from - base);
     }
-    function makeTree(type, children, positions, length, lookAhead = 0, props) {
+    function makeTree(type, children, positions, length, lookAhead, contextHash, props) {
         if (contextHash) {
             let pair = [NodeProp.contextHash, contextHash];
             props = props ? [pair].concat(props) : [pair];
@@ -16380,6 +17145,10 @@ class Tag {
     */
     constructor(
     /**
+    The optional name of the base tag @internal
+    */
+    name, 
+    /**
     The set of this tag and all its parent tags, starting with
     this one itself and sorted in order of decreasing specificity.
     */
@@ -16393,6 +17162,7 @@ class Tag {
     The modifiers applied to this.base @internal
     */
     modified) {
+        this.name = name;
         this.set = set;
         this.base = base;
         this.modified = modified;
@@ -16401,17 +17171,20 @@ class Tag {
         */
         this.id = nextTagID++;
     }
-    /**
-    Define a new tag. If `parent` is given, the tag is treated as a
-    sub-tag of that parent, and
-    [highlighters](#highlight.tagHighlighter) that don't mention
-    this tag will try to fall back to the parent tag (or grandparent
-    tag, etc).
-    */
-    static define(parent) {
+    toString() {
+        let { name } = this;
+        for (let mod of this.modified)
+            if (mod.name)
+                name = `${mod.name}(${name})`;
+        return name;
+    }
+    static define(nameOrParent, parent) {
+        let name = typeof nameOrParent == "string" ? nameOrParent : "?";
+        if (nameOrParent instanceof Tag)
+            parent = nameOrParent;
         if (parent === null || parent === void 0 ? void 0 : parent.base)
             throw new Error("Can not derive from a modified tag");
-        let tag = new Tag([], null, []);
+        let tag = new Tag(name, [], null, []);
         tag.set.push(tag);
         if (parent)
             for (let t of parent.set)
@@ -16430,8 +17203,8 @@ class Tag {
     example `m1(m2(m3(t1)))` is a subtype of `m1(m2(t1))`,
     `m1(m3(t1)`, and so on.
     */
-    static defineModifier() {
-        let mod = new Modifier;
+    static defineModifier(name) {
+        let mod = new Modifier(name);
         return (tag) => {
             if (tag.modified.indexOf(mod) > -1)
                 return tag;
@@ -16441,7 +17214,8 @@ class Tag {
 }
 let nextModifierID = 0;
 class Modifier {
-    constructor() {
+    constructor(name) {
+        this.name = name;
         this.instances = [];
         this.id = nextModifierID++;
     }
@@ -16451,7 +17225,7 @@ class Modifier {
         let exists = mods[0].instances.find(t => t.base == base && sameArray(mods, t.modified));
         if (exists)
             return exists;
-        let set = [], tag = new Tag(set, base, mods);
+        let set = [], tag = new Tag(base.name, set, base, mods);
         for (let m of mods)
             m.instances.push(tag);
         let configs = powerSet(mods);
@@ -17052,7 +17826,7 @@ const tags = {
     */
     heading6: t(heading),
     /**
-    A prose separator (such as a horizontal rule).
+    A prose [content](#highlight.tags.content) separator (such as a horizontal rule).
     */
     contentSeparator: t(content),
     /**
@@ -17125,31 +17899,31 @@ const tags = {
     given element is being defined. Expected to be used with the
     various [name](#highlight.tags.name) tags.
     */
-    definition: Tag.defineModifier(),
+    definition: Tag.defineModifier("definition"),
     /**
     [Modifier](#highlight.Tag^defineModifier) that indicates that
     something is constant. Mostly expected to be used with
     [variable names](#highlight.tags.variableName).
     */
-    constant: Tag.defineModifier(),
+    constant: Tag.defineModifier("constant"),
     /**
     [Modifier](#highlight.Tag^defineModifier) used to indicate that
     a [variable](#highlight.tags.variableName) or [property
     name](#highlight.tags.propertyName) is being called or defined
     as a function.
     */
-    function: Tag.defineModifier(),
+    function: Tag.defineModifier("function"),
     /**
     [Modifier](#highlight.Tag^defineModifier) that can be applied to
     [names](#highlight.tags.name) to indicate that they belong to
     the language's standard environment.
     */
-    standard: Tag.defineModifier(),
+    standard: Tag.defineModifier("standard"),
     /**
     [Modifier](#highlight.Tag^defineModifier) that indicates a given
     [names](#highlight.tags.name) is local to some scope.
     */
-    local: Tag.defineModifier(),
+    local: Tag.defineModifier("local"),
     /**
     A generic variant [modifier](#highlight.Tag^defineModifier) that
     can be used to tag language-specific alternative variants of
@@ -17158,8 +17932,13 @@ const tags = {
     [variable name](#highlight.tags.variableName) tags, since those
     come up a lot.
     */
-    special: Tag.defineModifier()
+    special: Tag.defineModifier("special")
 };
+for (let name in tags) {
+    let val = tags[name];
+    if (val instanceof Tag)
+        val.name = name;
+}
 /**
 This is a highlighter that adds stable, predictable classes to
 tokens, for styling with external CSS.
@@ -18230,10 +19009,10 @@ const indentNodeProp = /*@__PURE__*/new NodeProp();
 // Compute the indentation for a given position from the syntax tree.
 function syntaxIndentation(cx, ast, pos) {
     let stack = ast.resolveStack(pos);
-    let inner = stack.node.enterUnfinishedNodesBefore(pos);
+    let inner = ast.resolveInner(pos, -1).resolve(pos, 0).enterUnfinishedNodesBefore(pos);
     if (inner != stack.node) {
         let add = [];
-        for (let cur = inner; cur != stack.node; cur = cur.parent)
+        for (let cur = inner; cur && !(cur.from == stack.node.from && cur.type == stack.node.type); cur = cur.parent)
             add.push(cur);
         for (let i = add.length - 1; i >= 0; i--)
             stack = { node: add[i], next: stack };
@@ -18356,8 +19135,12 @@ function bracketedAligned(context) {
         let next = tree.childAfter(pos);
         if (!next || next == last)
             return null;
-        if (!next.type.isSkipped)
-            return next.from < lineEnd ? openToken : null;
+        if (!next.type.isSkipped) {
+            if (next.from >= lineEnd)
+                return null;
+            let space = /^ */.exec(openLine.text.slice(openToken.to - openLine.from))[0].length;
+            return { from: openToken.from, to: openToken.to + space };
+        }
         pos = next.to;
     }
 }
@@ -18986,16 +19769,20 @@ class TreeHighlighter {
         this.markCache = Object.create(null);
         this.tree = syntaxTree(view.state);
         this.decorations = this.buildDeco(view, getHighlighters(view.state));
+        this.decoratedTo = view.viewport.to;
     }
     update(update) {
         let tree = syntaxTree(update.state), highlighters = getHighlighters(update.state);
         let styleChange = highlighters != getHighlighters(update.startState);
-        if (tree.length < update.view.viewport.to && !styleChange && tree.type == this.tree.type) {
+        let { viewport } = update.view, decoratedToMapped = update.changes.mapPos(this.decoratedTo, 1);
+        if (tree.length < viewport.to && !styleChange && tree.type == this.tree.type && decoratedToMapped >= viewport.to) {
             this.decorations = this.decorations.map(update.changes);
+            this.decoratedTo = decoratedToMapped;
         }
         else if (tree != this.tree || update.viewportChanged || styleChange) {
             this.tree = tree;
             this.decorations = this.buildDeco(update.view, highlighters);
+            this.decoratedTo = viewport.to;
         }
     }
     buildDeco(view, highlighters) {
@@ -19058,7 +19845,7 @@ const defaultHighlightStyle = /*@__PURE__*/HighlightStyle.define([
         color: "#f00" }
 ]);
 
-const baseTheme$2 = /*@__PURE__*/EditorView.baseTheme({
+const baseTheme$4 = /*@__PURE__*/EditorView.baseTheme({
     "&.cm-focused .cm-matchingBracket": { backgroundColor: "#328c8252" },
     "&.cm-focused .cm-nonmatchingBracket": { backgroundColor: "#bb555544" }
 });
@@ -19106,7 +19893,7 @@ const bracketMatchingState = /*@__PURE__*/StateField.define({
 });
 const bracketMatchingUnique = [
     bracketMatchingState,
-    baseTheme$2
+    baseTheme$4
 ];
 /**
 Create an extension that enables bracket matching. Whenever the
@@ -19408,7 +20195,8 @@ function fullParser(spec) {
         copyState: spec.copyState || defaultCopyState,
         indent: spec.indent || (() => null),
         languageData: spec.languageData || {},
-        tokenTable: spec.tokenTable || noTokens
+        tokenTable: spec.tokenTable || noTokens,
+        mergeTokens: spec.mergeTokens !== false
     };
 }
 function defaultCopyState(state) {
@@ -19435,8 +20223,8 @@ class StreamLanguage extends Language {
                 return new Parse(self, input, fragments, ranges);
             }
         };
-        super(data, impl, [indentService.of((cx, pos) => this.getIndent(cx, pos))], parser.name);
-        this.topNode = docID(data);
+        super(data, impl, [], parser.name);
+        this.topNode = docID(data, this);
         self = this;
         this.streamParser = p;
         this.stateAfter = new NodeProp({ perNode: true });
@@ -19446,32 +20234,30 @@ class StreamLanguage extends Language {
     Define a stream language.
     */
     static define(spec) { return new StreamLanguage(spec); }
-    getIndent(cx, pos) {
-        let tree = syntaxTree(cx.state), at = tree.resolve(pos);
-        while (at && at.type != this.topNode)
-            at = at.parent;
-        if (!at)
-            return null;
+    /**
+    @internal
+    */
+    getIndent(cx) {
         let from = undefined;
         let { overrideIndentation } = cx.options;
         if (overrideIndentation) {
             from = IndentedFrom.get(cx.state);
-            if (from != null && from < pos - 1e4)
+            if (from != null && from < cx.pos - 1e4)
                 from = undefined;
         }
-        let start = findState(this, tree, 0, at.from, from !== null && from !== void 0 ? from : pos), statePos, state;
+        let start = findState(this, cx.node.tree, cx.node.from, cx.node.from, from !== null && from !== void 0 ? from : cx.pos), statePos, state;
         if (start) {
             state = start.state;
             statePos = start.pos + 1;
         }
         else {
             state = this.streamParser.startState(cx.unit);
-            statePos = 0;
+            statePos = cx.node.from;
         }
-        if (pos - statePos > 10000 /* C.MaxIndentScanDist */)
+        if (cx.pos - statePos > 10000 /* C.MaxIndentScanDist */)
             return null;
-        while (statePos < pos) {
-            let line = cx.state.doc.lineAt(statePos), end = Math.min(pos, line.to);
+        while (statePos < cx.pos) {
+            let line = cx.state.doc.lineAt(statePos), end = Math.min(cx.pos, line.to);
             if (line.length) {
                 let indentation = overrideIndentation ? overrideIndentation(line.from) : -1;
                 let stream = new StringStream(line.text, cx.state.tabSize, cx.unit, indentation < 0 ? undefined : indentation);
@@ -19481,11 +20267,11 @@ class StreamLanguage extends Language {
             else {
                 this.streamParser.blankLine(state, cx.unit);
             }
-            if (end == pos)
+            if (end == cx.pos)
                 break;
             statePos = line.to + 1;
         }
-        let line = cx.lineAt(pos);
+        let line = cx.lineAt(cx.pos);
         if (overrideIndentation && from == null)
             IndentedFrom.set(cx.state, line.from);
         return this.streamParser.indent(state, /^\s*(.*)/.exec(line.text)[1], cx);
@@ -19507,7 +20293,7 @@ function findState(lang, tree, off, startPos, before) {
 function cutTree(lang, tree, from, to, inside) {
     if (inside && from <= 0 && to >= tree.length)
         return tree;
-    if (!inside && tree.type == lang.topNode)
+    if (!inside && from == 0 && tree.type == lang.topNode)
         inside = true;
     for (let i = tree.children.length - 1; i >= 0; i--) {
         let pos = tree.positions[i], child = tree.children[i], inner;
@@ -19520,11 +20306,11 @@ function cutTree(lang, tree, from, to, inside) {
     }
     return null;
 }
-function findStartInFragments(lang, fragments, startPos, editorState) {
+function findStartInFragments(lang, fragments, startPos, endPos, editorState) {
     for (let f of fragments) {
         let from = f.from + (f.openStart ? 25 : 0), to = f.to - (f.openEnd ? 25 : 0);
         let found = from <= startPos && to > startPos && findState(lang, f.tree, 0 - f.offset, startPos, to), tree;
-        if (found && (tree = cutTree(lang, f.tree, startPos + f.offset, found.pos + f.offset, false)))
+        if (found && found.pos <= endPos && (tree = cutTree(lang, f.tree, startPos + f.offset, found.pos + f.offset, false)))
             return { state: found.state, tree };
     }
     return { state: lang.streamParser.startState(editorState ? getIndentUnit(editorState) : 4), tree: Tree.empty };
@@ -19543,14 +20329,15 @@ class Parse {
         this.rangeIndex = 0;
         this.to = ranges[ranges.length - 1].to;
         let context = ParseContext.get(), from = ranges[0].from;
-        let { state, tree } = findStartInFragments(lang, fragments, from, context === null || context === void 0 ? void 0 : context.state);
+        let { state, tree } = findStartInFragments(lang, fragments, from, this.to, context === null || context === void 0 ? void 0 : context.state);
         this.state = state;
         this.parsedPos = this.chunkStart = from + tree.length;
         for (let i = 0; i < tree.children.length; i++) {
             this.chunks.push(tree.children[i]);
             this.chunkPos.push(tree.positions[i]);
         }
-        if (context && this.parsedPos < context.viewport.from - 100000 /* C.MaxDistanceBeforeViewport */) {
+        if (context && this.parsedPos < context.viewport.from - 100000 /* C.MaxDistanceBeforeViewport */ &&
+            ranges.some(r => r.from <= context.viewport.from && r.to >= context.viewport.from)) {
             this.state = this.lang.streamParser.startState(getIndentUnit(context.state));
             context.skipUntilInView(this.parsedPos, context.viewport.from);
             this.parsedPos = context.viewport.from;
@@ -19621,7 +20408,8 @@ class Parse {
         while (this.ranges[this.rangeIndex].to < this.parsedPos)
             this.rangeIndex++;
     }
-    emitToken(id, from, to, size, offset) {
+    emitToken(id, from, to, offset) {
+        let size = 4;
         if (this.ranges.length > 1) {
             offset = this.skipGapsTo(from, offset, 1);
             from += offset;
@@ -19630,7 +20418,12 @@ class Parse {
             to += offset;
             size += this.chunk.length - len0;
         }
-        this.chunk.push(id, from, to, size);
+        let last = this.chunk.length - 4;
+        if (this.lang.streamParser.mergeTokens && size == 4 && last >= 0 &&
+            this.chunk[last] == id && this.chunk[last + 2] == from)
+            this.chunk[last + 2] = to;
+        else
+            this.chunk.push(id, from, to, size);
         return offset;
     }
     parseLine(context) {
@@ -19643,7 +20436,7 @@ class Parse {
             while (!stream.eol()) {
                 let token = readToken(streamParser.token, stream, this.state);
                 if (token)
-                    offset = this.emitToken(this.lang.tokenTable.resolve(token), this.parsedPos + stream.start, this.parsedPos + stream.pos, 4, offset);
+                    offset = this.emitToken(this.lang.tokenTable.resolve(token), this.parsedPos + stream.start, this.parsedPos + stream.pos, offset);
                 if (stream.start > 10000 /* C.MaxLineLength */)
                     break;
             }
@@ -19760,10 +20553,2202 @@ function createTokenType(extra, tagStr) {
     typeArray.push(type);
     return type.id;
 }
-function docID(data) {
-    let type = NodeType.define({ id: typeArray.length, name: "Document", props: [languageDataProp.add(() => data)], top: true });
+function docID(data, lang) {
+    let type = NodeType.define({ id: typeArray.length, name: "Document", props: [
+            languageDataProp.add(() => data),
+            indentNodeProp.add(() => cx => lang.getIndent(cx))
+        ], top: true });
     typeArray.push(type);
     return type;
+}
+
+function buildForLine(line) {
+    return line.length <= 4096 && /[\u0590-\u05f4\u0600-\u06ff\u0700-\u08ac\ufb50-\ufdff]/.test(line);
+}
+function textHasRTL(text) {
+    for (let i = text.iter(); !i.next().done;)
+        if (buildForLine(i.value))
+            return true;
+    return false;
+}
+function changeAddsRTL(change) {
+    let added = false;
+    change.iterChanges((fA, tA, fB, tB, ins) => {
+        if (!added && textHasRTL(ins))
+            added = true;
+    });
+    return added;
+}
+const alwaysIsolate = /*@__PURE__*/Facet.define({ combine: values => values.some(x => x) });
+/**
+Make sure nodes
+[marked](https://lezer.codemirror.net/docs/ref/#common.NodeProp^isolate)
+as isolating for bidirectional text are rendered in a way that
+isolates them from the surrounding text.
+*/
+function bidiIsolates(options = {}) {
+    let extensions = [isolateMarks];
+    if (options.alwaysIsolate)
+        extensions.push(alwaysIsolate.of(true));
+    return extensions;
+}
+const isolateMarks = /*@__PURE__*/ViewPlugin.fromClass(class {
+    constructor(view) {
+        this.always = view.state.facet(alwaysIsolate) ||
+            view.textDirection != exports.Direction.LTR ||
+            view.state.facet(EditorView.perLineTextDirection);
+        this.hasRTL = !this.always && textHasRTL(view.state.doc);
+        this.tree = syntaxTree(view.state);
+        this.decorations = this.always || this.hasRTL ? buildDeco(view, this.tree, this.always) : Decoration.none;
+    }
+    update(update) {
+        let always = update.state.facet(alwaysIsolate) ||
+            update.view.textDirection != exports.Direction.LTR ||
+            update.state.facet(EditorView.perLineTextDirection);
+        if (!always && !this.hasRTL && changeAddsRTL(update.changes))
+            this.hasRTL = true;
+        if (!always && !this.hasRTL)
+            return;
+        let tree = syntaxTree(update.state);
+        if (always != this.always || tree != this.tree || update.docChanged || update.viewportChanged) {
+            this.tree = tree;
+            this.always = always;
+            this.decorations = buildDeco(update.view, tree, always);
+        }
+    }
+}, {
+    provide: plugin => {
+        function access(view) {
+            var _a, _b;
+            return (_b = (_a = view.plugin(plugin)) === null || _a === void 0 ? void 0 : _a.decorations) !== null && _b !== void 0 ? _b : Decoration.none;
+        }
+        return [EditorView.outerDecorations.of(access),
+            Prec.lowest(EditorView.bidiIsolatedRanges.of(access))];
+    }
+});
+function buildDeco(view, tree, always) {
+    let deco = new RangeSetBuilder();
+    let ranges = view.visibleRanges;
+    if (!always)
+        ranges = clipRTLLines(ranges, view.state.doc);
+    for (let { from, to } of ranges) {
+        tree.iterate({
+            enter: node => {
+                let iso = node.type.prop(NodeProp.isolate);
+                if (iso)
+                    deco.add(node.from, node.to, marks[iso]);
+            },
+            from, to
+        });
+    }
+    return deco.finish();
+}
+function clipRTLLines(ranges, doc) {
+    let cur = doc.iter(), pos = 0, result = [], last = null;
+    for (let { from, to } of ranges) {
+        if (last && last.to > from) {
+            from = last.to;
+            if (from >= to)
+                continue;
+        }
+        if (pos + cur.value.length < from) {
+            cur.next(from - (pos + cur.value.length));
+            pos = from;
+        }
+        for (;;) {
+            let start = pos, end = pos + cur.value.length;
+            if (!cur.lineBreak && buildForLine(cur.value)) {
+                if (last && last.to > start - 10)
+                    last.to = Math.min(to, end);
+                else
+                    result.push(last = { from: start, to: Math.min(to, end) });
+            }
+            if (end >= to)
+                break;
+            pos = end;
+            cur.next();
+        }
+    }
+    return result;
+}
+const marks = {
+    rtl: /*@__PURE__*/Decoration.mark({ class: "cm-iso", inclusive: true, attributes: { dir: "rtl" }, bidiIsolate: exports.Direction.RTL }),
+    ltr: /*@__PURE__*/Decoration.mark({ class: "cm-iso", inclusive: true, attributes: { dir: "ltr" }, bidiIsolate: exports.Direction.LTR }),
+    auto: /*@__PURE__*/Decoration.mark({ class: "cm-iso", inclusive: true, attributes: { dir: "auto" }, bidiIsolate: null })
+};
+
+/**
+An instance of this is passed to completion source functions.
+*/
+class CompletionContext {
+    /**
+    Create a new completion context. (Mostly useful for testing
+    completion sources—in the editor, the extension will create
+    these for you.)
+    */
+    constructor(
+    /**
+    The editor state that the completion happens in.
+    */
+    state, 
+    /**
+    The position at which the completion is happening.
+    */
+    pos, 
+    /**
+    Indicates whether completion was activated explicitly, or
+    implicitly by typing. The usual way to respond to this is to
+    only return completions when either there is part of a
+    completable entity before the cursor, or `explicit` is true.
+    */
+    explicit, 
+    /**
+    The editor view. May be undefined if the context was created
+    in a situation where there is no such view available, such as
+    in synchronous updates via
+    [`CompletionResult.update`](https://codemirror.net/6/docs/ref/#autocomplete.CompletionResult.update)
+    or when called by test code.
+    */
+    view) {
+        this.state = state;
+        this.pos = pos;
+        this.explicit = explicit;
+        this.view = view;
+        /**
+        @internal
+        */
+        this.abortListeners = [];
+        /**
+        @internal
+        */
+        this.abortOnDocChange = false;
+    }
+    /**
+    Get the extent, content, and (if there is a token) type of the
+    token before `this.pos`.
+    */
+    tokenBefore(types) {
+        let token = syntaxTree(this.state).resolveInner(this.pos, -1);
+        while (token && types.indexOf(token.name) < 0)
+            token = token.parent;
+        return token ? { from: token.from, to: this.pos,
+            text: this.state.sliceDoc(token.from, this.pos),
+            type: token.type } : null;
+    }
+    /**
+    Get the match of the given expression directly before the
+    cursor.
+    */
+    matchBefore(expr) {
+        let line = this.state.doc.lineAt(this.pos);
+        let start = Math.max(line.from, this.pos - 250);
+        let str = line.text.slice(start - line.from, this.pos - line.from);
+        let found = str.search(ensureAnchor(expr, false));
+        return found < 0 ? null : { from: start + found, to: this.pos, text: str.slice(found) };
+    }
+    /**
+    Yields true when the query has been aborted. Can be useful in
+    asynchronous queries to avoid doing work that will be ignored.
+    */
+    get aborted() { return this.abortListeners == null; }
+    /**
+    Allows you to register abort handlers, which will be called when
+    the query is
+    [aborted](https://codemirror.net/6/docs/ref/#autocomplete.CompletionContext.aborted).
+    
+    By default, running queries will not be aborted for regular
+    typing or backspacing, on the assumption that they are likely to
+    return a result with a
+    [`validFor`](https://codemirror.net/6/docs/ref/#autocomplete.CompletionResult.validFor) field that
+    allows the result to be used after all. Passing `onDocChange:
+    true` will cause this query to be aborted for any document
+    change.
+    */
+    addEventListener(type, listener, options) {
+        if (type == "abort" && this.abortListeners) {
+            this.abortListeners.push(listener);
+            if (options && options.onDocChange)
+                this.abortOnDocChange = true;
+        }
+    }
+}
+function toSet(chars) {
+    let flat = Object.keys(chars).join("");
+    let words = /\w/.test(flat);
+    if (words)
+        flat = flat.replace(/\w/g, "");
+    return `[${words ? "\\w" : ""}${flat.replace(/[^\w\s]/g, "\\$&")}]`;
+}
+function prefixMatch(options) {
+    let first = Object.create(null), rest = Object.create(null);
+    for (let { label } of options) {
+        first[label[0]] = true;
+        for (let i = 1; i < label.length; i++)
+            rest[label[i]] = true;
+    }
+    let source = toSet(first) + toSet(rest) + "*$";
+    return [new RegExp("^" + source), new RegExp(source)];
+}
+/**
+Given a a fixed array of options, return an autocompleter that
+completes them.
+*/
+function completeFromList(list) {
+    let options = list.map(o => typeof o == "string" ? { label: o } : o);
+    let [validFor, match] = options.every(o => /^\w+$/.test(o.label)) ? [/\w*$/, /\w+$/] : prefixMatch(options);
+    return (context) => {
+        let token = context.matchBefore(match);
+        return token || context.explicit ? { from: token ? token.from : context.pos, options, validFor } : null;
+    };
+}
+/**
+Wrap the given completion source so that it will only fire when the
+cursor is in a syntax node with one of the given names.
+*/
+function ifIn(nodes, source) {
+    return (context) => {
+        for (let pos = syntaxTree(context.state).resolveInner(context.pos, -1); pos; pos = pos.parent) {
+            if (nodes.indexOf(pos.name) > -1)
+                return source(context);
+            if (pos.type.isTop)
+                break;
+        }
+        return null;
+    };
+}
+/**
+Wrap the given completion source so that it will not fire when the
+cursor is in a syntax node with one of the given names.
+*/
+function ifNotIn(nodes, source) {
+    return (context) => {
+        for (let pos = syntaxTree(context.state).resolveInner(context.pos, -1); pos; pos = pos.parent) {
+            if (nodes.indexOf(pos.name) > -1)
+                return null;
+            if (pos.type.isTop)
+                break;
+        }
+        return source(context);
+    };
+}
+class Option {
+    constructor(completion, source, match, score) {
+        this.completion = completion;
+        this.source = source;
+        this.match = match;
+        this.score = score;
+    }
+}
+function cur(state) { return state.selection.main.from; }
+// Make sure the given regexp has a $ at its end and, if `start` is
+// true, a ^ at its start.
+function ensureAnchor(expr, start) {
+    var _a;
+    let { source } = expr;
+    let addStart = start && source[0] != "^", addEnd = source[source.length - 1] != "$";
+    if (!addStart && !addEnd)
+        return expr;
+    return new RegExp(`${addStart ? "^" : ""}(?:${source})${addEnd ? "$" : ""}`, (_a = expr.flags) !== null && _a !== void 0 ? _a : (expr.ignoreCase ? "i" : ""));
+}
+/**
+This annotation is added to transactions that are produced by
+picking a completion.
+*/
+const pickedCompletion = /*@__PURE__*/Annotation.define();
+/**
+Helper function that returns a transaction spec which inserts a
+completion's text in the main selection range, and any other
+selection range that has the same text in front of it.
+*/
+function insertCompletionText(state, text, from, to) {
+    let { main } = state.selection, fromOff = from - main.from, toOff = to - main.from;
+    return Object.assign(Object.assign({}, state.changeByRange(range => {
+        if (range != main && from != to &&
+            state.sliceDoc(range.from + fromOff, range.from + toOff) != state.sliceDoc(from, to))
+            return { range };
+        let lines = state.toText(text);
+        return {
+            changes: { from: range.from + fromOff, to: to == main.from ? range.to : range.from + toOff, insert: lines },
+            range: EditorSelection.cursor(range.from + fromOff + lines.length)
+        };
+    })), { scrollIntoView: true, userEvent: "input.complete" });
+}
+const SourceCache = /*@__PURE__*/new WeakMap();
+function asSource(source) {
+    if (!Array.isArray(source))
+        return source;
+    let known = SourceCache.get(source);
+    if (!known)
+        SourceCache.set(source, known = completeFromList(source));
+    return known;
+}
+const startCompletionEffect = /*@__PURE__*/StateEffect.define();
+const closeCompletionEffect = /*@__PURE__*/StateEffect.define();
+
+// A pattern matcher for fuzzy completion matching. Create an instance
+// once for a pattern, and then use that to match any number of
+// completions.
+class FuzzyMatcher {
+    constructor(pattern) {
+        this.pattern = pattern;
+        this.chars = [];
+        this.folded = [];
+        // Buffers reused by calls to `match` to track matched character
+        // positions.
+        this.any = [];
+        this.precise = [];
+        this.byWord = [];
+        this.score = 0;
+        this.matched = [];
+        for (let p = 0; p < pattern.length;) {
+            let char = codePointAt(pattern, p), size = codePointSize(char);
+            this.chars.push(char);
+            let part = pattern.slice(p, p + size), upper = part.toUpperCase();
+            this.folded.push(codePointAt(upper == part ? part.toLowerCase() : upper, 0));
+            p += size;
+        }
+        this.astral = pattern.length != this.chars.length;
+    }
+    ret(score, matched) {
+        this.score = score;
+        this.matched = matched;
+        return this;
+    }
+    // Matches a given word (completion) against the pattern (input).
+    // Will return a boolean indicating whether there was a match and,
+    // on success, set `this.score` to the score, `this.matched` to an
+    // array of `from, to` pairs indicating the matched parts of `word`.
+    //
+    // The score is a number that is more negative the worse the match
+    // is. See `Penalty` above.
+    match(word) {
+        if (this.pattern.length == 0)
+            return this.ret(-100 /* Penalty.NotFull */, []);
+        if (word.length < this.pattern.length)
+            return null;
+        let { chars, folded, any, precise, byWord } = this;
+        // For single-character queries, only match when they occur right
+        // at the start
+        if (chars.length == 1) {
+            let first = codePointAt(word, 0), firstSize = codePointSize(first);
+            let score = firstSize == word.length ? 0 : -100 /* Penalty.NotFull */;
+            if (first == chars[0]) ;
+            else if (first == folded[0])
+                score += -200 /* Penalty.CaseFold */;
+            else
+                return null;
+            return this.ret(score, [0, firstSize]);
+        }
+        let direct = word.indexOf(this.pattern);
+        if (direct == 0)
+            return this.ret(word.length == this.pattern.length ? 0 : -100 /* Penalty.NotFull */, [0, this.pattern.length]);
+        let len = chars.length, anyTo = 0;
+        if (direct < 0) {
+            for (let i = 0, e = Math.min(word.length, 200); i < e && anyTo < len;) {
+                let next = codePointAt(word, i);
+                if (next == chars[anyTo] || next == folded[anyTo])
+                    any[anyTo++] = i;
+                i += codePointSize(next);
+            }
+            // No match, exit immediately
+            if (anyTo < len)
+                return null;
+        }
+        // This tracks the extent of the precise (non-folded, not
+        // necessarily adjacent) match
+        let preciseTo = 0;
+        // Tracks whether there is a match that hits only characters that
+        // appear to be starting words. `byWordFolded` is set to true when
+        // a case folded character is encountered in such a match
+        let byWordTo = 0, byWordFolded = false;
+        // If we've found a partial adjacent match, these track its state
+        let adjacentTo = 0, adjacentStart = -1, adjacentEnd = -1;
+        let hasLower = /[a-z]/.test(word), wordAdjacent = true;
+        // Go over the option's text, scanning for the various kinds of matches
+        for (let i = 0, e = Math.min(word.length, 200), prevType = 0 /* Tp.NonWord */; i < e && byWordTo < len;) {
+            let next = codePointAt(word, i);
+            if (direct < 0) {
+                if (preciseTo < len && next == chars[preciseTo])
+                    precise[preciseTo++] = i;
+                if (adjacentTo < len) {
+                    if (next == chars[adjacentTo] || next == folded[adjacentTo]) {
+                        if (adjacentTo == 0)
+                            adjacentStart = i;
+                        adjacentEnd = i + 1;
+                        adjacentTo++;
+                    }
+                    else {
+                        adjacentTo = 0;
+                    }
+                }
+            }
+            let ch, type = next < 0xff
+                ? (next >= 48 && next <= 57 || next >= 97 && next <= 122 ? 2 /* Tp.Lower */ : next >= 65 && next <= 90 ? 1 /* Tp.Upper */ : 0 /* Tp.NonWord */)
+                : ((ch = fromCodePoint(next)) != ch.toLowerCase() ? 1 /* Tp.Upper */ : ch != ch.toUpperCase() ? 2 /* Tp.Lower */ : 0 /* Tp.NonWord */);
+            if (!i || type == 1 /* Tp.Upper */ && hasLower || prevType == 0 /* Tp.NonWord */ && type != 0 /* Tp.NonWord */) {
+                if (chars[byWordTo] == next || (folded[byWordTo] == next && (byWordFolded = true)))
+                    byWord[byWordTo++] = i;
+                else if (byWord.length)
+                    wordAdjacent = false;
+            }
+            prevType = type;
+            i += codePointSize(next);
+        }
+        if (byWordTo == len && byWord[0] == 0 && wordAdjacent)
+            return this.result(-100 /* Penalty.ByWord */ + (byWordFolded ? -200 /* Penalty.CaseFold */ : 0), byWord, word);
+        if (adjacentTo == len && adjacentStart == 0)
+            return this.ret(-200 /* Penalty.CaseFold */ - word.length + (adjacentEnd == word.length ? 0 : -100 /* Penalty.NotFull */), [0, adjacentEnd]);
+        if (direct > -1)
+            return this.ret(-700 /* Penalty.NotStart */ - word.length, [direct, direct + this.pattern.length]);
+        if (adjacentTo == len)
+            return this.ret(-200 /* Penalty.CaseFold */ + -700 /* Penalty.NotStart */ - word.length, [adjacentStart, adjacentEnd]);
+        if (byWordTo == len)
+            return this.result(-100 /* Penalty.ByWord */ + (byWordFolded ? -200 /* Penalty.CaseFold */ : 0) + -700 /* Penalty.NotStart */ +
+                (wordAdjacent ? 0 : -1100 /* Penalty.Gap */), byWord, word);
+        return chars.length == 2 ? null
+            : this.result((any[0] ? -700 /* Penalty.NotStart */ : 0) + -200 /* Penalty.CaseFold */ + -1100 /* Penalty.Gap */, any, word);
+    }
+    result(score, positions, word) {
+        let result = [], i = 0;
+        for (let pos of positions) {
+            let to = pos + (this.astral ? codePointSize(codePointAt(word, pos)) : 1);
+            if (i && result[i - 1] == pos)
+                result[i - 1] = to;
+            else {
+                result[i++] = pos;
+                result[i++] = to;
+            }
+        }
+        return this.ret(score - word.length, result);
+    }
+}
+class StrictMatcher {
+    constructor(pattern) {
+        this.pattern = pattern;
+        this.matched = [];
+        this.score = 0;
+        this.folded = pattern.toLowerCase();
+    }
+    match(word) {
+        if (word.length < this.pattern.length)
+            return null;
+        let start = word.slice(0, this.pattern.length);
+        let match = start == this.pattern ? 0 : start.toLowerCase() == this.folded ? -200 /* Penalty.CaseFold */ : null;
+        if (match == null)
+            return null;
+        this.matched = [0, start.length];
+        this.score = match + (word.length == this.pattern.length ? 0 : -100 /* Penalty.NotFull */);
+        return this;
+    }
+}
+
+const completionConfig = /*@__PURE__*/Facet.define({
+    combine(configs) {
+        return combineConfig(configs, {
+            activateOnTyping: true,
+            activateOnCompletion: () => false,
+            activateOnTypingDelay: 100,
+            selectOnOpen: true,
+            override: null,
+            closeOnBlur: true,
+            maxRenderedOptions: 100,
+            defaultKeymap: true,
+            tooltipClass: () => "",
+            optionClass: () => "",
+            aboveCursor: false,
+            icons: true,
+            addToOptions: [],
+            positionInfo: defaultPositionInfo,
+            filterStrict: false,
+            compareCompletions: (a, b) => a.label.localeCompare(b.label),
+            interactionDelay: 75,
+            updateSyncTime: 100
+        }, {
+            defaultKeymap: (a, b) => a && b,
+            closeOnBlur: (a, b) => a && b,
+            icons: (a, b) => a && b,
+            tooltipClass: (a, b) => c => joinClass(a(c), b(c)),
+            optionClass: (a, b) => c => joinClass(a(c), b(c)),
+            addToOptions: (a, b) => a.concat(b),
+            filterStrict: (a, b) => a || b,
+        });
+    }
+});
+function joinClass(a, b) {
+    return a ? b ? a + " " + b : a : b;
+}
+function defaultPositionInfo(view, list, option, info, space, tooltip) {
+    let rtl = view.textDirection == exports.Direction.RTL, left = rtl, narrow = false;
+    let side = "top", offset, maxWidth;
+    let spaceLeft = list.left - space.left, spaceRight = space.right - list.right;
+    let infoWidth = info.right - info.left, infoHeight = info.bottom - info.top;
+    if (left && spaceLeft < Math.min(infoWidth, spaceRight))
+        left = false;
+    else if (!left && spaceRight < Math.min(infoWidth, spaceLeft))
+        left = true;
+    if (infoWidth <= (left ? spaceLeft : spaceRight)) {
+        offset = Math.max(space.top, Math.min(option.top, space.bottom - infoHeight)) - list.top;
+        maxWidth = Math.min(400 /* Info.Width */, left ? spaceLeft : spaceRight);
+    }
+    else {
+        narrow = true;
+        maxWidth = Math.min(400 /* Info.Width */, (rtl ? list.right : space.right - list.left) - 30 /* Info.Margin */);
+        let spaceBelow = space.bottom - list.bottom;
+        if (spaceBelow >= infoHeight || spaceBelow > list.top) { // Below the completion
+            offset = option.bottom - list.top;
+        }
+        else { // Above it
+            side = "bottom";
+            offset = list.bottom - option.top;
+        }
+    }
+    let scaleY = (list.bottom - list.top) / tooltip.offsetHeight;
+    let scaleX = (list.right - list.left) / tooltip.offsetWidth;
+    return {
+        style: `${side}: ${offset / scaleY}px; max-width: ${maxWidth / scaleX}px`,
+        class: "cm-completionInfo-" + (narrow ? (rtl ? "left-narrow" : "right-narrow") : left ? "left" : "right")
+    };
+}
+
+function optionContent(config) {
+    let content = config.addToOptions.slice();
+    if (config.icons)
+        content.push({
+            render(completion) {
+                let icon = document.createElement("div");
+                icon.classList.add("cm-completionIcon");
+                if (completion.type)
+                    icon.classList.add(...completion.type.split(/\s+/g).map(cls => "cm-completionIcon-" + cls));
+                icon.setAttribute("aria-hidden", "true");
+                return icon;
+            },
+            position: 20
+        });
+    content.push({
+        render(completion, _s, _v, match) {
+            let labelElt = document.createElement("span");
+            labelElt.className = "cm-completionLabel";
+            let label = completion.displayLabel || completion.label, off = 0;
+            for (let j = 0; j < match.length;) {
+                let from = match[j++], to = match[j++];
+                if (from > off)
+                    labelElt.appendChild(document.createTextNode(label.slice(off, from)));
+                let span = labelElt.appendChild(document.createElement("span"));
+                span.appendChild(document.createTextNode(label.slice(from, to)));
+                span.className = "cm-completionMatchedText";
+                off = to;
+            }
+            if (off < label.length)
+                labelElt.appendChild(document.createTextNode(label.slice(off)));
+            return labelElt;
+        },
+        position: 50
+    }, {
+        render(completion) {
+            if (!completion.detail)
+                return null;
+            let detailElt = document.createElement("span");
+            detailElt.className = "cm-completionDetail";
+            detailElt.textContent = completion.detail;
+            return detailElt;
+        },
+        position: 80
+    });
+    return content.sort((a, b) => a.position - b.position).map(a => a.render);
+}
+function rangeAroundSelected(total, selected, max) {
+    if (total <= max)
+        return { from: 0, to: total };
+    if (selected < 0)
+        selected = 0;
+    if (selected <= (total >> 1)) {
+        let off = Math.floor(selected / max);
+        return { from: off * max, to: (off + 1) * max };
+    }
+    let off = Math.floor((total - selected) / max);
+    return { from: total - (off + 1) * max, to: total - off * max };
+}
+class CompletionTooltip {
+    constructor(view, stateField, applyCompletion) {
+        this.view = view;
+        this.stateField = stateField;
+        this.applyCompletion = applyCompletion;
+        this.info = null;
+        this.infoDestroy = null;
+        this.placeInfoReq = {
+            read: () => this.measureInfo(),
+            write: (pos) => this.placeInfo(pos),
+            key: this
+        };
+        this.space = null;
+        this.currentClass = "";
+        let cState = view.state.field(stateField);
+        let { options, selected } = cState.open;
+        let config = view.state.facet(completionConfig);
+        this.optionContent = optionContent(config);
+        this.optionClass = config.optionClass;
+        this.tooltipClass = config.tooltipClass;
+        this.range = rangeAroundSelected(options.length, selected, config.maxRenderedOptions);
+        this.dom = document.createElement("div");
+        this.dom.className = "cm-tooltip-autocomplete";
+        this.updateTooltipClass(view.state);
+        this.dom.addEventListener("mousedown", (e) => {
+            let { options } = view.state.field(stateField).open;
+            for (let dom = e.target, match; dom && dom != this.dom; dom = dom.parentNode) {
+                if (dom.nodeName == "LI" && (match = /-(\d+)$/.exec(dom.id)) && +match[1] < options.length) {
+                    this.applyCompletion(view, options[+match[1]]);
+                    e.preventDefault();
+                    return;
+                }
+            }
+        });
+        this.dom.addEventListener("focusout", (e) => {
+            let state = view.state.field(this.stateField, false);
+            if (state && state.tooltip && view.state.facet(completionConfig).closeOnBlur &&
+                e.relatedTarget != view.contentDOM)
+                view.dispatch({ effects: closeCompletionEffect.of(null) });
+        });
+        this.showOptions(options, cState.id);
+    }
+    mount() { this.updateSel(); }
+    showOptions(options, id) {
+        if (this.list)
+            this.list.remove();
+        this.list = this.dom.appendChild(this.createListBox(options, id, this.range));
+        this.list.addEventListener("scroll", () => {
+            if (this.info)
+                this.view.requestMeasure(this.placeInfoReq);
+        });
+    }
+    update(update) {
+        var _a;
+        let cState = update.state.field(this.stateField);
+        let prevState = update.startState.field(this.stateField);
+        this.updateTooltipClass(update.state);
+        if (cState != prevState) {
+            let { options, selected, disabled } = cState.open;
+            if (!prevState.open || prevState.open.options != options) {
+                this.range = rangeAroundSelected(options.length, selected, update.state.facet(completionConfig).maxRenderedOptions);
+                this.showOptions(options, cState.id);
+            }
+            this.updateSel();
+            if (disabled != ((_a = prevState.open) === null || _a === void 0 ? void 0 : _a.disabled))
+                this.dom.classList.toggle("cm-tooltip-autocomplete-disabled", !!disabled);
+        }
+    }
+    updateTooltipClass(state) {
+        let cls = this.tooltipClass(state);
+        if (cls != this.currentClass) {
+            for (let c of this.currentClass.split(" "))
+                if (c)
+                    this.dom.classList.remove(c);
+            for (let c of cls.split(" "))
+                if (c)
+                    this.dom.classList.add(c);
+            this.currentClass = cls;
+        }
+    }
+    positioned(space) {
+        this.space = space;
+        if (this.info)
+            this.view.requestMeasure(this.placeInfoReq);
+    }
+    updateSel() {
+        let cState = this.view.state.field(this.stateField), open = cState.open;
+        if (open.selected > -1 && open.selected < this.range.from || open.selected >= this.range.to) {
+            this.range = rangeAroundSelected(open.options.length, open.selected, this.view.state.facet(completionConfig).maxRenderedOptions);
+            this.showOptions(open.options, cState.id);
+        }
+        if (this.updateSelectedOption(open.selected)) {
+            this.destroyInfo();
+            let { completion } = open.options[open.selected];
+            let { info } = completion;
+            if (!info)
+                return;
+            let infoResult = typeof info === "string" ? document.createTextNode(info) : info(completion);
+            if (!infoResult)
+                return;
+            if ("then" in infoResult) {
+                infoResult.then(obj => {
+                    if (obj && this.view.state.field(this.stateField, false) == cState)
+                        this.addInfoPane(obj, completion);
+                }).catch(e => logException(this.view.state, e, "completion info"));
+            }
+            else {
+                this.addInfoPane(infoResult, completion);
+            }
+        }
+    }
+    addInfoPane(content, completion) {
+        this.destroyInfo();
+        let wrap = this.info = document.createElement("div");
+        wrap.className = "cm-tooltip cm-completionInfo";
+        if (content.nodeType != null) {
+            wrap.appendChild(content);
+            this.infoDestroy = null;
+        }
+        else {
+            let { dom, destroy } = content;
+            wrap.appendChild(dom);
+            this.infoDestroy = destroy || null;
+        }
+        this.dom.appendChild(wrap);
+        this.view.requestMeasure(this.placeInfoReq);
+    }
+    updateSelectedOption(selected) {
+        let set = null;
+        for (let opt = this.list.firstChild, i = this.range.from; opt; opt = opt.nextSibling, i++) {
+            if (opt.nodeName != "LI" || !opt.id) {
+                i--; // A section header
+            }
+            else if (i == selected) {
+                if (!opt.hasAttribute("aria-selected")) {
+                    opt.setAttribute("aria-selected", "true");
+                    set = opt;
+                }
+            }
+            else {
+                if (opt.hasAttribute("aria-selected"))
+                    opt.removeAttribute("aria-selected");
+            }
+        }
+        if (set)
+            scrollIntoView(this.list, set);
+        return set;
+    }
+    measureInfo() {
+        let sel = this.dom.querySelector("[aria-selected]");
+        if (!sel || !this.info)
+            return null;
+        let listRect = this.dom.getBoundingClientRect();
+        let infoRect = this.info.getBoundingClientRect();
+        let selRect = sel.getBoundingClientRect();
+        let space = this.space;
+        if (!space) {
+            let docElt = this.dom.ownerDocument.documentElement;
+            space = { left: 0, top: 0, right: docElt.clientWidth, bottom: docElt.clientHeight };
+        }
+        if (selRect.top > Math.min(space.bottom, listRect.bottom) - 10 ||
+            selRect.bottom < Math.max(space.top, listRect.top) + 10)
+            return null;
+        return this.view.state.facet(completionConfig).positionInfo(this.view, listRect, selRect, infoRect, space, this.dom);
+    }
+    placeInfo(pos) {
+        if (this.info) {
+            if (pos) {
+                if (pos.style)
+                    this.info.style.cssText = pos.style;
+                this.info.className = "cm-tooltip cm-completionInfo " + (pos.class || "");
+            }
+            else {
+                this.info.style.cssText = "top: -1e6px";
+            }
+        }
+    }
+    createListBox(options, id, range) {
+        const ul = document.createElement("ul");
+        ul.id = id;
+        ul.setAttribute("role", "listbox");
+        ul.setAttribute("aria-expanded", "true");
+        ul.setAttribute("aria-label", this.view.state.phrase("Completions"));
+        ul.addEventListener("mousedown", e => {
+            // Prevent focus change when clicking the scrollbar
+            if (e.target == ul)
+                e.preventDefault();
+        });
+        let curSection = null;
+        for (let i = range.from; i < range.to; i++) {
+            let { completion, match } = options[i], { section } = completion;
+            if (section) {
+                let name = typeof section == "string" ? section : section.name;
+                if (name != curSection && (i > range.from || range.from == 0)) {
+                    curSection = name;
+                    if (typeof section != "string" && section.header) {
+                        ul.appendChild(section.header(section));
+                    }
+                    else {
+                        let header = ul.appendChild(document.createElement("completion-section"));
+                        header.textContent = name;
+                    }
+                }
+            }
+            const li = ul.appendChild(document.createElement("li"));
+            li.id = id + "-" + i;
+            li.setAttribute("role", "option");
+            let cls = this.optionClass(completion);
+            if (cls)
+                li.className = cls;
+            for (let source of this.optionContent) {
+                let node = source(completion, this.view.state, this.view, match);
+                if (node)
+                    li.appendChild(node);
+            }
+        }
+        if (range.from)
+            ul.classList.add("cm-completionListIncompleteTop");
+        if (range.to < options.length)
+            ul.classList.add("cm-completionListIncompleteBottom");
+        return ul;
+    }
+    destroyInfo() {
+        if (this.info) {
+            if (this.infoDestroy)
+                this.infoDestroy();
+            this.info.remove();
+            this.info = null;
+        }
+    }
+    destroy() {
+        this.destroyInfo();
+    }
+}
+function completionTooltip(stateField, applyCompletion) {
+    return (view) => new CompletionTooltip(view, stateField, applyCompletion);
+}
+function scrollIntoView(container, element) {
+    let parent = container.getBoundingClientRect();
+    let self = element.getBoundingClientRect();
+    let scaleY = parent.height / container.offsetHeight;
+    if (self.top < parent.top)
+        container.scrollTop -= (parent.top - self.top) / scaleY;
+    else if (self.bottom > parent.bottom)
+        container.scrollTop += (self.bottom - parent.bottom) / scaleY;
+}
+
+// Used to pick a preferred option when two options with the same
+// label occur in the result.
+function score(option) {
+    return (option.boost || 0) * 100 + (option.apply ? 10 : 0) + (option.info ? 5 : 0) +
+        (option.type ? 1 : 0);
+}
+function sortOptions(active, state) {
+    let options = [];
+    let sections = null;
+    let addOption = (option) => {
+        options.push(option);
+        let { section } = option.completion;
+        if (section) {
+            if (!sections)
+                sections = [];
+            let name = typeof section == "string" ? section : section.name;
+            if (!sections.some(s => s.name == name))
+                sections.push(typeof section == "string" ? { name } : section);
+        }
+    };
+    let conf = state.facet(completionConfig);
+    for (let a of active)
+        if (a.hasResult()) {
+            let getMatch = a.result.getMatch;
+            if (a.result.filter === false) {
+                for (let option of a.result.options) {
+                    addOption(new Option(option, a.source, getMatch ? getMatch(option) : [], 1e9 - options.length));
+                }
+            }
+            else {
+                let pattern = state.sliceDoc(a.from, a.to), match;
+                let matcher = conf.filterStrict ? new StrictMatcher(pattern) : new FuzzyMatcher(pattern);
+                for (let option of a.result.options)
+                    if (match = matcher.match(option.label)) {
+                        let matched = !option.displayLabel ? match.matched : getMatch ? getMatch(option, match.matched) : [];
+                        addOption(new Option(option, a.source, matched, match.score + (option.boost || 0)));
+                    }
+            }
+        }
+    if (sections) {
+        let sectionOrder = Object.create(null), pos = 0;
+        let cmp = (a, b) => { var _a, _b; return ((_a = a.rank) !== null && _a !== void 0 ? _a : 1e9) - ((_b = b.rank) !== null && _b !== void 0 ? _b : 1e9) || (a.name < b.name ? -1 : 1); };
+        for (let s of sections.sort(cmp)) {
+            pos -= 1e5;
+            sectionOrder[s.name] = pos;
+        }
+        for (let option of options) {
+            let { section } = option.completion;
+            if (section)
+                option.score += sectionOrder[typeof section == "string" ? section : section.name];
+        }
+    }
+    let result = [], prev = null;
+    let compare = conf.compareCompletions;
+    for (let opt of options.sort((a, b) => (b.score - a.score) || compare(a.completion, b.completion))) {
+        let cur = opt.completion;
+        if (!prev || prev.label != cur.label || prev.detail != cur.detail ||
+            (prev.type != null && cur.type != null && prev.type != cur.type) ||
+            prev.apply != cur.apply || prev.boost != cur.boost)
+            result.push(opt);
+        else if (score(opt.completion) > score(prev))
+            result[result.length - 1] = opt;
+        prev = opt.completion;
+    }
+    return result;
+}
+class CompletionDialog {
+    constructor(options, attrs, tooltip, timestamp, selected, disabled) {
+        this.options = options;
+        this.attrs = attrs;
+        this.tooltip = tooltip;
+        this.timestamp = timestamp;
+        this.selected = selected;
+        this.disabled = disabled;
+    }
+    setSelected(selected, id) {
+        return selected == this.selected || selected >= this.options.length ? this
+            : new CompletionDialog(this.options, makeAttrs(id, selected), this.tooltip, this.timestamp, selected, this.disabled);
+    }
+    static build(active, state, id, prev, conf, didSetActive) {
+        if (prev && !didSetActive && active.some(s => s.isPending))
+            return prev.setDisabled();
+        let options = sortOptions(active, state);
+        if (!options.length)
+            return prev && active.some(a => a.isPending) ? prev.setDisabled() : null;
+        let selected = state.facet(completionConfig).selectOnOpen ? 0 : -1;
+        if (prev && prev.selected != selected && prev.selected != -1) {
+            let selectedValue = prev.options[prev.selected].completion;
+            for (let i = 0; i < options.length; i++)
+                if (options[i].completion == selectedValue) {
+                    selected = i;
+                    break;
+                }
+        }
+        return new CompletionDialog(options, makeAttrs(id, selected), {
+            pos: active.reduce((a, b) => b.hasResult() ? Math.min(a, b.from) : a, 1e8),
+            create: createTooltip,
+            above: conf.aboveCursor,
+        }, prev ? prev.timestamp : Date.now(), selected, false);
+    }
+    map(changes) {
+        return new CompletionDialog(this.options, this.attrs, Object.assign(Object.assign({}, this.tooltip), { pos: changes.mapPos(this.tooltip.pos) }), this.timestamp, this.selected, this.disabled);
+    }
+    setDisabled() {
+        return new CompletionDialog(this.options, this.attrs, this.tooltip, this.timestamp, this.selected, true);
+    }
+}
+class CompletionState {
+    constructor(active, id, open) {
+        this.active = active;
+        this.id = id;
+        this.open = open;
+    }
+    static start() {
+        return new CompletionState(none$1, "cm-ac-" + Math.floor(Math.random() * 2e6).toString(36), null);
+    }
+    update(tr) {
+        let { state } = tr, conf = state.facet(completionConfig);
+        let sources = conf.override ||
+            state.languageDataAt("autocomplete", cur(state)).map(asSource);
+        let active = sources.map(source => {
+            let value = this.active.find(s => s.source == source) ||
+                new ActiveSource(source, this.active.some(a => a.state != 0 /* State.Inactive */) ? 1 /* State.Pending */ : 0 /* State.Inactive */);
+            return value.update(tr, conf);
+        });
+        if (active.length == this.active.length && active.every((a, i) => a == this.active[i]))
+            active = this.active;
+        let open = this.open, didSet = tr.effects.some(e => e.is(setActiveEffect));
+        if (open && tr.docChanged)
+            open = open.map(tr.changes);
+        if (tr.selection || active.some(a => a.hasResult() && tr.changes.touchesRange(a.from, a.to)) ||
+            !sameResults(active, this.active) || didSet)
+            open = CompletionDialog.build(active, state, this.id, open, conf, didSet);
+        else if (open && open.disabled && !active.some(a => a.isPending))
+            open = null;
+        if (!open && active.every(a => !a.isPending) && active.some(a => a.hasResult()))
+            active = active.map(a => a.hasResult() ? new ActiveSource(a.source, 0 /* State.Inactive */) : a);
+        for (let effect of tr.effects)
+            if (effect.is(setSelectedEffect))
+                open = open && open.setSelected(effect.value, this.id);
+        return active == this.active && open == this.open ? this : new CompletionState(active, this.id, open);
+    }
+    get tooltip() { return this.open ? this.open.tooltip : null; }
+    get attrs() { return this.open ? this.open.attrs : this.active.length ? baseAttrs : noAttrs; }
+}
+function sameResults(a, b) {
+    if (a == b)
+        return true;
+    for (let iA = 0, iB = 0;;) {
+        while (iA < a.length && !a[iA].hasResult())
+            iA++;
+        while (iB < b.length && !b[iB].hasResult())
+            iB++;
+        let endA = iA == a.length, endB = iB == b.length;
+        if (endA || endB)
+            return endA == endB;
+        if (a[iA++].result != b[iB++].result)
+            return false;
+    }
+}
+const baseAttrs = {
+    "aria-autocomplete": "list"
+};
+const noAttrs = {};
+function makeAttrs(id, selected) {
+    let result = {
+        "aria-autocomplete": "list",
+        "aria-haspopup": "listbox",
+        "aria-controls": id
+    };
+    if (selected > -1)
+        result["aria-activedescendant"] = id + "-" + selected;
+    return result;
+}
+const none$1 = [];
+function getUpdateType(tr, conf) {
+    if (tr.isUserEvent("input.complete")) {
+        let completion = tr.annotation(pickedCompletion);
+        if (completion && conf.activateOnCompletion(completion))
+            return 4 /* UpdateType.Activate */ | 8 /* UpdateType.Reset */;
+    }
+    let typing = tr.isUserEvent("input.type");
+    return typing && conf.activateOnTyping ? 4 /* UpdateType.Activate */ | 1 /* UpdateType.Typing */
+        : typing ? 1 /* UpdateType.Typing */
+            : tr.isUserEvent("delete.backward") ? 2 /* UpdateType.Backspacing */
+                : tr.selection ? 8 /* UpdateType.Reset */
+                    : tr.docChanged ? 16 /* UpdateType.ResetIfTouching */ : 0 /* UpdateType.None */;
+}
+class ActiveSource {
+    constructor(source, state, explicit = false) {
+        this.source = source;
+        this.state = state;
+        this.explicit = explicit;
+    }
+    hasResult() { return false; }
+    get isPending() { return this.state == 1 /* State.Pending */; }
+    update(tr, conf) {
+        let type = getUpdateType(tr, conf), value = this;
+        if ((type & 8 /* UpdateType.Reset */) || (type & 16 /* UpdateType.ResetIfTouching */) && this.touches(tr))
+            value = new ActiveSource(value.source, 0 /* State.Inactive */);
+        if ((type & 4 /* UpdateType.Activate */) && value.state == 0 /* State.Inactive */)
+            value = new ActiveSource(this.source, 1 /* State.Pending */);
+        value = value.updateFor(tr, type);
+        for (let effect of tr.effects) {
+            if (effect.is(startCompletionEffect))
+                value = new ActiveSource(value.source, 1 /* State.Pending */, effect.value);
+            else if (effect.is(closeCompletionEffect))
+                value = new ActiveSource(value.source, 0 /* State.Inactive */);
+            else if (effect.is(setActiveEffect))
+                for (let active of effect.value)
+                    if (active.source == value.source)
+                        value = active;
+        }
+        return value;
+    }
+    updateFor(tr, type) { return this.map(tr.changes); }
+    map(changes) { return this; }
+    touches(tr) {
+        return tr.changes.touchesRange(cur(tr.state));
+    }
+}
+class ActiveResult extends ActiveSource {
+    constructor(source, explicit, limit, result, from, to) {
+        super(source, 3 /* State.Result */, explicit);
+        this.limit = limit;
+        this.result = result;
+        this.from = from;
+        this.to = to;
+    }
+    hasResult() { return true; }
+    updateFor(tr, type) {
+        var _a;
+        if (!(type & 3 /* UpdateType.SimpleInteraction */))
+            return this.map(tr.changes);
+        let result = this.result;
+        if (result.map && !tr.changes.empty)
+            result = result.map(result, tr.changes);
+        let from = tr.changes.mapPos(this.from), to = tr.changes.mapPos(this.to, 1);
+        let pos = cur(tr.state);
+        if (pos > to || !result ||
+            (type & 2 /* UpdateType.Backspacing */) && (cur(tr.startState) == this.from || pos < this.limit))
+            return new ActiveSource(this.source, type & 4 /* UpdateType.Activate */ ? 1 /* State.Pending */ : 0 /* State.Inactive */);
+        let limit = tr.changes.mapPos(this.limit);
+        if (checkValid(result.validFor, tr.state, from, to))
+            return new ActiveResult(this.source, this.explicit, limit, result, from, to);
+        if (result.update &&
+            (result = result.update(result, from, to, new CompletionContext(tr.state, pos, false))))
+            return new ActiveResult(this.source, this.explicit, limit, result, result.from, (_a = result.to) !== null && _a !== void 0 ? _a : cur(tr.state));
+        return new ActiveSource(this.source, 1 /* State.Pending */, this.explicit);
+    }
+    map(mapping) {
+        if (mapping.empty)
+            return this;
+        let result = this.result.map ? this.result.map(this.result, mapping) : this.result;
+        if (!result)
+            return new ActiveSource(this.source, 0 /* State.Inactive */);
+        return new ActiveResult(this.source, this.explicit, mapping.mapPos(this.limit), this.result, mapping.mapPos(this.from), mapping.mapPos(this.to, 1));
+    }
+    touches(tr) {
+        return tr.changes.touchesRange(this.from, this.to);
+    }
+}
+function checkValid(validFor, state, from, to) {
+    if (!validFor)
+        return false;
+    let text = state.sliceDoc(from, to);
+    return typeof validFor == "function" ? validFor(text, from, to, state) : ensureAnchor(validFor, true).test(text);
+}
+const setActiveEffect = /*@__PURE__*/StateEffect.define({
+    map(sources, mapping) { return sources.map(s => s.map(mapping)); }
+});
+const setSelectedEffect = /*@__PURE__*/StateEffect.define();
+const completionState = /*@__PURE__*/StateField.define({
+    create() { return CompletionState.start(); },
+    update(value, tr) { return value.update(tr); },
+    provide: f => [
+        showTooltip.from(f, val => val.tooltip),
+        EditorView.contentAttributes.from(f, state => state.attrs)
+    ]
+});
+function applyCompletion(view, option) {
+    const apply = option.completion.apply || option.completion.label;
+    let result = view.state.field(completionState).active.find(a => a.source == option.source);
+    if (!(result instanceof ActiveResult))
+        return false;
+    if (typeof apply == "string")
+        view.dispatch(Object.assign(Object.assign({}, insertCompletionText(view.state, apply, result.from, result.to)), { annotations: pickedCompletion.of(option.completion) }));
+    else
+        apply(view, option.completion, result.from, result.to);
+    return true;
+}
+const createTooltip = /*@__PURE__*/completionTooltip(completionState, applyCompletion);
+
+/**
+Returns a command that moves the completion selection forward or
+backward by the given amount.
+*/
+function moveCompletionSelection(forward, by = "option") {
+    return (view) => {
+        let cState = view.state.field(completionState, false);
+        if (!cState || !cState.open || cState.open.disabled ||
+            Date.now() - cState.open.timestamp < view.state.facet(completionConfig).interactionDelay)
+            return false;
+        let step = 1, tooltip;
+        if (by == "page" && (tooltip = getTooltip(view, cState.open.tooltip)))
+            step = Math.max(2, Math.floor(tooltip.dom.offsetHeight /
+                tooltip.dom.querySelector("li").offsetHeight) - 1);
+        let { length } = cState.open.options;
+        let selected = cState.open.selected > -1 ? cState.open.selected + step * (forward ? 1 : -1) : forward ? 0 : length - 1;
+        if (selected < 0)
+            selected = by == "page" ? 0 : length - 1;
+        else if (selected >= length)
+            selected = by == "page" ? length - 1 : 0;
+        view.dispatch({ effects: setSelectedEffect.of(selected) });
+        return true;
+    };
+}
+/**
+Accept the current completion.
+*/
+const acceptCompletion = (view) => {
+    let cState = view.state.field(completionState, false);
+    if (view.state.readOnly || !cState || !cState.open || cState.open.selected < 0 || cState.open.disabled ||
+        Date.now() - cState.open.timestamp < view.state.facet(completionConfig).interactionDelay)
+        return false;
+    return applyCompletion(view, cState.open.options[cState.open.selected]);
+};
+/**
+Explicitly start autocompletion.
+*/
+const startCompletion = (view) => {
+    let cState = view.state.field(completionState, false);
+    if (!cState)
+        return false;
+    view.dispatch({ effects: startCompletionEffect.of(true) });
+    return true;
+};
+/**
+Close the currently active completion.
+*/
+const closeCompletion = (view) => {
+    let cState = view.state.field(completionState, false);
+    if (!cState || !cState.active.some(a => a.state != 0 /* State.Inactive */))
+        return false;
+    view.dispatch({ effects: closeCompletionEffect.of(null) });
+    return true;
+};
+class RunningQuery {
+    constructor(active, context) {
+        this.active = active;
+        this.context = context;
+        this.time = Date.now();
+        this.updates = [];
+        // Note that 'undefined' means 'not done yet', whereas 'null' means
+        // 'query returned null'.
+        this.done = undefined;
+    }
+}
+const MaxUpdateCount = 50, MinAbortTime = 1000;
+const completionPlugin = /*@__PURE__*/ViewPlugin.fromClass(class {
+    constructor(view) {
+        this.view = view;
+        this.debounceUpdate = -1;
+        this.running = [];
+        this.debounceAccept = -1;
+        this.pendingStart = false;
+        this.composing = 0 /* CompositionState.None */;
+        for (let active of view.state.field(completionState).active)
+            if (active.isPending)
+                this.startQuery(active);
+    }
+    update(update) {
+        let cState = update.state.field(completionState);
+        let conf = update.state.facet(completionConfig);
+        if (!update.selectionSet && !update.docChanged && update.startState.field(completionState) == cState)
+            return;
+        let doesReset = update.transactions.some(tr => {
+            let type = getUpdateType(tr, conf);
+            return (type & 8 /* UpdateType.Reset */) || (tr.selection || tr.docChanged) && !(type & 3 /* UpdateType.SimpleInteraction */);
+        });
+        for (let i = 0; i < this.running.length; i++) {
+            let query = this.running[i];
+            if (doesReset ||
+                query.context.abortOnDocChange && update.docChanged ||
+                query.updates.length + update.transactions.length > MaxUpdateCount && Date.now() - query.time > MinAbortTime) {
+                for (let handler of query.context.abortListeners) {
+                    try {
+                        handler();
+                    }
+                    catch (e) {
+                        logException(this.view.state, e);
+                    }
+                }
+                query.context.abortListeners = null;
+                this.running.splice(i--, 1);
+            }
+            else {
+                query.updates.push(...update.transactions);
+            }
+        }
+        if (this.debounceUpdate > -1)
+            clearTimeout(this.debounceUpdate);
+        if (update.transactions.some(tr => tr.effects.some(e => e.is(startCompletionEffect))))
+            this.pendingStart = true;
+        let delay = this.pendingStart ? 50 : conf.activateOnTypingDelay;
+        this.debounceUpdate = cState.active.some(a => a.isPending && !this.running.some(q => q.active.source == a.source))
+            ? setTimeout(() => this.startUpdate(), delay) : -1;
+        if (this.composing != 0 /* CompositionState.None */)
+            for (let tr of update.transactions) {
+                if (tr.isUserEvent("input.type"))
+                    this.composing = 2 /* CompositionState.Changed */;
+                else if (this.composing == 2 /* CompositionState.Changed */ && tr.selection)
+                    this.composing = 3 /* CompositionState.ChangedAndMoved */;
+            }
+    }
+    startUpdate() {
+        this.debounceUpdate = -1;
+        this.pendingStart = false;
+        let { state } = this.view, cState = state.field(completionState);
+        for (let active of cState.active) {
+            if (active.isPending && !this.running.some(r => r.active.source == active.source))
+                this.startQuery(active);
+        }
+        if (this.running.length && cState.open && cState.open.disabled)
+            this.debounceAccept = setTimeout(() => this.accept(), this.view.state.facet(completionConfig).updateSyncTime);
+    }
+    startQuery(active) {
+        let { state } = this.view, pos = cur(state);
+        let context = new CompletionContext(state, pos, active.explicit, this.view);
+        let pending = new RunningQuery(active, context);
+        this.running.push(pending);
+        Promise.resolve(active.source(context)).then(result => {
+            if (!pending.context.aborted) {
+                pending.done = result || null;
+                this.scheduleAccept();
+            }
+        }, err => {
+            this.view.dispatch({ effects: closeCompletionEffect.of(null) });
+            logException(this.view.state, err);
+        });
+    }
+    scheduleAccept() {
+        if (this.running.every(q => q.done !== undefined))
+            this.accept();
+        else if (this.debounceAccept < 0)
+            this.debounceAccept = setTimeout(() => this.accept(), this.view.state.facet(completionConfig).updateSyncTime);
+    }
+    // For each finished query in this.running, try to create a result
+    // or, if appropriate, restart the query.
+    accept() {
+        var _a;
+        if (this.debounceAccept > -1)
+            clearTimeout(this.debounceAccept);
+        this.debounceAccept = -1;
+        let updated = [];
+        let conf = this.view.state.facet(completionConfig), cState = this.view.state.field(completionState);
+        for (let i = 0; i < this.running.length; i++) {
+            let query = this.running[i];
+            if (query.done === undefined)
+                continue;
+            this.running.splice(i--, 1);
+            if (query.done) {
+                let pos = cur(query.updates.length ? query.updates[0].startState : this.view.state);
+                let limit = Math.min(pos, query.done.from + (query.active.explicit ? 0 : 1));
+                let active = new ActiveResult(query.active.source, query.active.explicit, limit, query.done, query.done.from, (_a = query.done.to) !== null && _a !== void 0 ? _a : pos);
+                // Replay the transactions that happened since the start of
+                // the request and see if that preserves the result
+                for (let tr of query.updates)
+                    active = active.update(tr, conf);
+                if (active.hasResult()) {
+                    updated.push(active);
+                    continue;
+                }
+            }
+            let current = cState.active.find(a => a.source == query.active.source);
+            if (current && current.isPending) {
+                if (query.done == null) {
+                    // Explicitly failed. Should clear the pending status if it
+                    // hasn't been re-set in the meantime.
+                    let active = new ActiveSource(query.active.source, 0 /* State.Inactive */);
+                    for (let tr of query.updates)
+                        active = active.update(tr, conf);
+                    if (!active.isPending)
+                        updated.push(active);
+                }
+                else {
+                    // Cleared by subsequent transactions. Restart.
+                    this.startQuery(current);
+                }
+            }
+        }
+        if (updated.length || cState.open && cState.open.disabled)
+            this.view.dispatch({ effects: setActiveEffect.of(updated) });
+    }
+}, {
+    eventHandlers: {
+        blur(event) {
+            let state = this.view.state.field(completionState, false);
+            if (state && state.tooltip && this.view.state.facet(completionConfig).closeOnBlur) {
+                let dialog = state.open && getTooltip(this.view, state.open.tooltip);
+                if (!dialog || !dialog.dom.contains(event.relatedTarget))
+                    setTimeout(() => this.view.dispatch({ effects: closeCompletionEffect.of(null) }), 10);
+            }
+        },
+        compositionstart() {
+            this.composing = 1 /* CompositionState.Started */;
+        },
+        compositionend() {
+            if (this.composing == 3 /* CompositionState.ChangedAndMoved */) {
+                // Safari fires compositionend events synchronously, possibly
+                // from inside an update, so dispatch asynchronously to avoid reentrancy
+                setTimeout(() => this.view.dispatch({ effects: startCompletionEffect.of(false) }), 20);
+            }
+            this.composing = 0 /* CompositionState.None */;
+        }
+    }
+});
+const windows = typeof navigator == "object" && /*@__PURE__*//Win/.test(navigator.platform);
+const commitCharacters = /*@__PURE__*/Prec.highest(/*@__PURE__*/EditorView.domEventHandlers({
+    keydown(event, view) {
+        let field = view.state.field(completionState, false);
+        if (!field || !field.open || field.open.disabled || field.open.selected < 0 ||
+            event.key.length > 1 || event.ctrlKey && !(windows && event.altKey) || event.metaKey)
+            return false;
+        let option = field.open.options[field.open.selected];
+        let result = field.active.find(a => a.source == option.source);
+        let commitChars = option.completion.commitCharacters || result.result.commitCharacters;
+        if (commitChars && commitChars.indexOf(event.key) > -1)
+            applyCompletion(view, option);
+        return false;
+    }
+}));
+
+const baseTheme$3 = /*@__PURE__*/EditorView.baseTheme({
+    ".cm-tooltip.cm-tooltip-autocomplete": {
+        "& > ul": {
+            fontFamily: "monospace",
+            whiteSpace: "nowrap",
+            overflow: "hidden auto",
+            maxWidth_fallback: "700px",
+            maxWidth: "min(700px, 95vw)",
+            minWidth: "250px",
+            maxHeight: "10em",
+            height: "100%",
+            listStyle: "none",
+            margin: 0,
+            padding: 0,
+            "& > li, & > completion-section": {
+                padding: "1px 3px",
+                lineHeight: 1.2
+            },
+            "& > li": {
+                overflowX: "hidden",
+                textOverflow: "ellipsis",
+                cursor: "pointer"
+            },
+            "& > completion-section": {
+                display: "list-item",
+                borderBottom: "1px solid silver",
+                paddingLeft: "0.5em",
+                opacity: 0.7
+            }
+        }
+    },
+    "&light .cm-tooltip-autocomplete ul li[aria-selected]": {
+        background: "#17c",
+        color: "white",
+    },
+    "&light .cm-tooltip-autocomplete-disabled ul li[aria-selected]": {
+        background: "#777",
+    },
+    "&dark .cm-tooltip-autocomplete ul li[aria-selected]": {
+        background: "#347",
+        color: "white",
+    },
+    "&dark .cm-tooltip-autocomplete-disabled ul li[aria-selected]": {
+        background: "#444",
+    },
+    ".cm-completionListIncompleteTop:before, .cm-completionListIncompleteBottom:after": {
+        content: '"···"',
+        opacity: 0.5,
+        display: "block",
+        textAlign: "center"
+    },
+    ".cm-tooltip.cm-completionInfo": {
+        position: "absolute",
+        padding: "3px 9px",
+        width: "max-content",
+        maxWidth: `${400 /* Info.Width */}px`,
+        boxSizing: "border-box",
+        whiteSpace: "pre-line"
+    },
+    ".cm-completionInfo.cm-completionInfo-left": { right: "100%" },
+    ".cm-completionInfo.cm-completionInfo-right": { left: "100%" },
+    ".cm-completionInfo.cm-completionInfo-left-narrow": { right: `${30 /* Info.Margin */}px` },
+    ".cm-completionInfo.cm-completionInfo-right-narrow": { left: `${30 /* Info.Margin */}px` },
+    "&light .cm-snippetField": { backgroundColor: "#00000022" },
+    "&dark .cm-snippetField": { backgroundColor: "#ffffff22" },
+    ".cm-snippetFieldPosition": {
+        verticalAlign: "text-top",
+        width: 0,
+        height: "1.15em",
+        display: "inline-block",
+        margin: "0 -0.7px -.7em",
+        borderLeft: "1.4px dotted #888"
+    },
+    ".cm-completionMatchedText": {
+        textDecoration: "underline"
+    },
+    ".cm-completionDetail": {
+        marginLeft: "0.5em",
+        fontStyle: "italic"
+    },
+    ".cm-completionIcon": {
+        fontSize: "90%",
+        width: ".8em",
+        display: "inline-block",
+        textAlign: "center",
+        paddingRight: ".6em",
+        opacity: "0.6",
+        boxSizing: "content-box"
+    },
+    ".cm-completionIcon-function, .cm-completionIcon-method": {
+        "&:after": { content: "'ƒ'" }
+    },
+    ".cm-completionIcon-class": {
+        "&:after": { content: "'○'" }
+    },
+    ".cm-completionIcon-interface": {
+        "&:after": { content: "'◌'" }
+    },
+    ".cm-completionIcon-variable": {
+        "&:after": { content: "'𝑥'" }
+    },
+    ".cm-completionIcon-constant": {
+        "&:after": { content: "'𝐶'" }
+    },
+    ".cm-completionIcon-type": {
+        "&:after": { content: "'𝑡'" }
+    },
+    ".cm-completionIcon-enum": {
+        "&:after": { content: "'∪'" }
+    },
+    ".cm-completionIcon-property": {
+        "&:after": { content: "'□'" }
+    },
+    ".cm-completionIcon-keyword": {
+        "&:after": { content: "'🔑\uFE0E'" } // Disable emoji rendering
+    },
+    ".cm-completionIcon-namespace": {
+        "&:after": { content: "'▢'" }
+    },
+    ".cm-completionIcon-text": {
+        "&:after": { content: "'abc'", fontSize: "50%", verticalAlign: "middle" }
+    }
+});
+
+class FieldPos {
+    constructor(field, line, from, to) {
+        this.field = field;
+        this.line = line;
+        this.from = from;
+        this.to = to;
+    }
+}
+class FieldRange {
+    constructor(field, from, to) {
+        this.field = field;
+        this.from = from;
+        this.to = to;
+    }
+    map(changes) {
+        let from = changes.mapPos(this.from, -1, exports.MapMode.TrackDel);
+        let to = changes.mapPos(this.to, 1, exports.MapMode.TrackDel);
+        return from == null || to == null ? null : new FieldRange(this.field, from, to);
+    }
+}
+class Snippet {
+    constructor(lines, fieldPositions) {
+        this.lines = lines;
+        this.fieldPositions = fieldPositions;
+    }
+    instantiate(state, pos) {
+        let text = [], lineStart = [pos];
+        let lineObj = state.doc.lineAt(pos), baseIndent = /^\s*/.exec(lineObj.text)[0];
+        for (let line of this.lines) {
+            if (text.length) {
+                let indent = baseIndent, tabs = /^\t*/.exec(line)[0].length;
+                for (let i = 0; i < tabs; i++)
+                    indent += state.facet(indentUnit);
+                lineStart.push(pos + indent.length - tabs);
+                line = indent + line.slice(tabs);
+            }
+            text.push(line);
+            pos += line.length + 1;
+        }
+        let ranges = this.fieldPositions.map(pos => new FieldRange(pos.field, lineStart[pos.line] + pos.from, lineStart[pos.line] + pos.to));
+        return { text, ranges };
+    }
+    static parse(template) {
+        let fields = [];
+        let lines = [], positions = [], m;
+        for (let line of template.split(/\r\n?|\n/)) {
+            while (m = /[#$]\{(?:(\d+)(?::([^}]*))?|((?:\\[{}]|[^}])*))\}/.exec(line)) {
+                let seq = m[1] ? +m[1] : null, rawName = m[2] || m[3] || "", found = -1;
+                let name = rawName.replace(/\\[{}]/g, m => m[1]);
+                for (let i = 0; i < fields.length; i++) {
+                    if (seq != null ? fields[i].seq == seq : name ? fields[i].name == name : false)
+                        found = i;
+                }
+                if (found < 0) {
+                    let i = 0;
+                    while (i < fields.length && (seq == null || (fields[i].seq != null && fields[i].seq < seq)))
+                        i++;
+                    fields.splice(i, 0, { seq, name });
+                    found = i;
+                    for (let pos of positions)
+                        if (pos.field >= found)
+                            pos.field++;
+                }
+                positions.push(new FieldPos(found, lines.length, m.index, m.index + name.length));
+                line = line.slice(0, m.index) + rawName + line.slice(m.index + m[0].length);
+            }
+            line = line.replace(/\\([{}])/g, (_, brace, index) => {
+                for (let pos of positions)
+                    if (pos.line == lines.length && pos.from > index) {
+                        pos.from--;
+                        pos.to--;
+                    }
+                return brace;
+            });
+            lines.push(line);
+        }
+        return new Snippet(lines, positions);
+    }
+}
+let fieldMarker = /*@__PURE__*/Decoration.widget({ widget: /*@__PURE__*/new class extends WidgetType {
+        toDOM() {
+            let span = document.createElement("span");
+            span.className = "cm-snippetFieldPosition";
+            return span;
+        }
+        ignoreEvent() { return false; }
+    } });
+let fieldRange = /*@__PURE__*/Decoration.mark({ class: "cm-snippetField" });
+class ActiveSnippet {
+    constructor(ranges, active) {
+        this.ranges = ranges;
+        this.active = active;
+        this.deco = Decoration.set(ranges.map(r => (r.from == r.to ? fieldMarker : fieldRange).range(r.from, r.to)));
+    }
+    map(changes) {
+        let ranges = [];
+        for (let r of this.ranges) {
+            let mapped = r.map(changes);
+            if (!mapped)
+                return null;
+            ranges.push(mapped);
+        }
+        return new ActiveSnippet(ranges, this.active);
+    }
+    selectionInsideField(sel) {
+        return sel.ranges.every(range => this.ranges.some(r => r.field == this.active && r.from <= range.from && r.to >= range.to));
+    }
+}
+const setActive = /*@__PURE__*/StateEffect.define({
+    map(value, changes) { return value && value.map(changes); }
+});
+const moveToField = /*@__PURE__*/StateEffect.define();
+const snippetState = /*@__PURE__*/StateField.define({
+    create() { return null; },
+    update(value, tr) {
+        for (let effect of tr.effects) {
+            if (effect.is(setActive))
+                return effect.value;
+            if (effect.is(moveToField) && value)
+                return new ActiveSnippet(value.ranges, effect.value);
+        }
+        if (value && tr.docChanged)
+            value = value.map(tr.changes);
+        if (value && tr.selection && !value.selectionInsideField(tr.selection))
+            value = null;
+        return value;
+    },
+    provide: f => EditorView.decorations.from(f, val => val ? val.deco : Decoration.none)
+});
+function fieldSelection(ranges, field) {
+    return EditorSelection.create(ranges.filter(r => r.field == field).map(r => EditorSelection.range(r.from, r.to)));
+}
+/**
+Convert a snippet template to a function that can
+[apply](https://codemirror.net/6/docs/ref/#autocomplete.Completion.apply) it. Snippets are written
+using syntax like this:
+
+    "for (let ${index} = 0; ${index} < ${end}; ${index}++) {\n\t${}\n}"
+
+Each `${}` placeholder (you may also use `#{}`) indicates a field
+that the user can fill in. Its name, if any, will be the default
+content for the field.
+
+When the snippet is activated by calling the returned function,
+the code is inserted at the given position. Newlines in the
+template are indented by the indentation of the start line, plus
+one [indent unit](https://codemirror.net/6/docs/ref/#language.indentUnit) per tab character after
+the newline.
+
+On activation, (all instances of) the first field are selected.
+The user can move between fields with Tab and Shift-Tab as long as
+the fields are active. Moving to the last field or moving the
+cursor out of the current field deactivates the fields.
+
+The order of fields defaults to textual order, but you can add
+numbers to placeholders (`${1}` or `${1:defaultText}`) to provide
+a custom order.
+
+To include a literal `{` or `}` in your template, put a backslash
+in front of it. This will be removed and the brace will not be
+interpreted as indicating a placeholder.
+*/
+function snippet(template) {
+    let snippet = Snippet.parse(template);
+    return (editor, completion, from, to) => {
+        let { text, ranges } = snippet.instantiate(editor.state, from);
+        let { main } = editor.state.selection;
+        let spec = {
+            changes: { from, to: to == main.from ? main.to : to, insert: Text.of(text) },
+            scrollIntoView: true,
+            annotations: completion ? [pickedCompletion.of(completion), Transaction.userEvent.of("input.complete")] : undefined
+        };
+        if (ranges.length)
+            spec.selection = fieldSelection(ranges, 0);
+        if (ranges.some(r => r.field > 0)) {
+            let active = new ActiveSnippet(ranges, 0);
+            let effects = spec.effects = [setActive.of(active)];
+            if (editor.state.field(snippetState, false) === undefined)
+                effects.push(StateEffect.appendConfig.of([snippetState, addSnippetKeymap, snippetPointerHandler, baseTheme$3]));
+        }
+        editor.dispatch(editor.state.update(spec));
+    };
+}
+function moveField(dir) {
+    return ({ state, dispatch }) => {
+        let active = state.field(snippetState, false);
+        if (!active || dir < 0 && active.active == 0)
+            return false;
+        let next = active.active + dir, last = dir > 0 && !active.ranges.some(r => r.field == next + dir);
+        dispatch(state.update({
+            selection: fieldSelection(active.ranges, next),
+            effects: setActive.of(last ? null : new ActiveSnippet(active.ranges, next)),
+            scrollIntoView: true
+        }));
+        return true;
+    };
+}
+/**
+A command that clears the active snippet, if any.
+*/
+const clearSnippet = ({ state, dispatch }) => {
+    let active = state.field(snippetState, false);
+    if (!active)
+        return false;
+    dispatch(state.update({ effects: setActive.of(null) }));
+    return true;
+};
+/**
+Move to the next snippet field, if available.
+*/
+const nextSnippetField = /*@__PURE__*/moveField(1);
+/**
+Move to the previous snippet field, if available.
+*/
+const prevSnippetField = /*@__PURE__*/moveField(-1);
+/**
+Check if there is an active snippet with a next field for
+`nextSnippetField` to move to.
+*/
+function hasNextSnippetField(state) {
+    let active = state.field(snippetState, false);
+    return !!(active && active.ranges.some(r => r.field == active.active + 1));
+}
+/**
+Returns true if there is an active snippet and a previous field
+for `prevSnippetField` to move to.
+*/
+function hasPrevSnippetField(state) {
+    let active = state.field(snippetState, false);
+    return !!(active && active.active > 0);
+}
+const defaultSnippetKeymap = [
+    { key: "Tab", run: nextSnippetField, shift: prevSnippetField },
+    { key: "Escape", run: clearSnippet }
+];
+/**
+A facet that can be used to configure the key bindings used by
+snippets. The default binds Tab to
+[`nextSnippetField`](https://codemirror.net/6/docs/ref/#autocomplete.nextSnippetField), Shift-Tab to
+[`prevSnippetField`](https://codemirror.net/6/docs/ref/#autocomplete.prevSnippetField), and Escape
+to [`clearSnippet`](https://codemirror.net/6/docs/ref/#autocomplete.clearSnippet).
+*/
+const snippetKeymap = /*@__PURE__*/Facet.define({
+    combine(maps) { return maps.length ? maps[0] : defaultSnippetKeymap; }
+});
+const addSnippetKeymap = /*@__PURE__*/Prec.highest(/*@__PURE__*/keymap.compute([snippetKeymap], state => state.facet(snippetKeymap)));
+/**
+Create a completion from a snippet. Returns an object with the
+properties from `completion`, plus an `apply` function that
+applies the snippet.
+*/
+function snippetCompletion(template, completion) {
+    return Object.assign(Object.assign({}, completion), { apply: snippet(template) });
+}
+const snippetPointerHandler = /*@__PURE__*/EditorView.domEventHandlers({
+    mousedown(event, view) {
+        let active = view.state.field(snippetState, false), pos;
+        if (!active || (pos = view.posAtCoords({ x: event.clientX, y: event.clientY })) == null)
+            return false;
+        let match = active.ranges.find(r => r.from <= pos && r.to >= pos);
+        if (!match || match.field == active.active)
+            return false;
+        view.dispatch({
+            selection: fieldSelection(active.ranges, match.field),
+            effects: setActive.of(active.ranges.some(r => r.field > match.field)
+                ? new ActiveSnippet(active.ranges, match.field) : null),
+            scrollIntoView: true
+        });
+        return true;
+    }
+});
+
+function wordRE(wordChars) {
+    let escaped = wordChars.replace(/[\]\-\\]/g, "\\$&");
+    try {
+        return new RegExp(`[\\p{Alphabetic}\\p{Number}_${escaped}]+`, "ug");
+    }
+    catch (_a) {
+        return new RegExp(`[\w${escaped}]`, "g");
+    }
+}
+function mapRE(re, f) {
+    return new RegExp(f(re.source), re.unicode ? "u" : "");
+}
+const wordCaches = /*@__PURE__*/Object.create(null);
+function wordCache(wordChars) {
+    return wordCaches[wordChars] || (wordCaches[wordChars] = new WeakMap);
+}
+function storeWords(doc, wordRE, result, seen, ignoreAt) {
+    for (let lines = doc.iterLines(), pos = 0; !lines.next().done;) {
+        let { value } = lines, m;
+        wordRE.lastIndex = 0;
+        while (m = wordRE.exec(value)) {
+            if (!seen[m[0]] && pos + m.index != ignoreAt) {
+                result.push({ type: "text", label: m[0] });
+                seen[m[0]] = true;
+                if (result.length >= 2000 /* C.MaxList */)
+                    return;
+            }
+        }
+        pos += value.length + 1;
+    }
+}
+function collectWords(doc, cache, wordRE, to, ignoreAt) {
+    let big = doc.length >= 1000 /* C.MinCacheLen */;
+    let cached = big && cache.get(doc);
+    if (cached)
+        return cached;
+    let result = [], seen = Object.create(null);
+    if (doc.children) {
+        let pos = 0;
+        for (let ch of doc.children) {
+            if (ch.length >= 1000 /* C.MinCacheLen */) {
+                for (let c of collectWords(ch, cache, wordRE, to - pos, ignoreAt - pos)) {
+                    if (!seen[c.label]) {
+                        seen[c.label] = true;
+                        result.push(c);
+                    }
+                }
+            }
+            else {
+                storeWords(ch, wordRE, result, seen, ignoreAt - pos);
+            }
+            pos += ch.length + 1;
+        }
+    }
+    else {
+        storeWords(doc, wordRE, result, seen, ignoreAt);
+    }
+    if (big && result.length < 2000 /* C.MaxList */)
+        cache.set(doc, result);
+    return result;
+}
+/**
+A completion source that will scan the document for words (using a
+[character categorizer](https://codemirror.net/6/docs/ref/#state.EditorState.charCategorizer)), and
+return those as completions.
+*/
+const completeAnyWord = context => {
+    let wordChars = context.state.languageDataAt("wordChars", context.pos).join("");
+    let re = wordRE(wordChars);
+    let token = context.matchBefore(mapRE(re, s => s + "$"));
+    if (!token && !context.explicit)
+        return null;
+    let from = token ? token.from : context.pos;
+    let options = collectWords(context.state.doc, wordCache(wordChars), re, 50000 /* C.Range */, from);
+    return { from, options, validFor: mapRE(re, s => "^" + s) };
+};
+
+const defaults = {
+    brackets: ["(", "[", "{", "'", '"'],
+    before: ")]}:;>",
+    stringPrefixes: []
+};
+const closeBracketEffect = /*@__PURE__*/StateEffect.define({
+    map(value, mapping) {
+        let mapped = mapping.mapPos(value, -1, exports.MapMode.TrackAfter);
+        return mapped == null ? undefined : mapped;
+    }
+});
+const closedBracket = /*@__PURE__*/new class extends RangeValue {
+};
+closedBracket.startSide = 1;
+closedBracket.endSide = -1;
+const bracketState = /*@__PURE__*/StateField.define({
+    create() { return RangeSet.empty; },
+    update(value, tr) {
+        value = value.map(tr.changes);
+        if (tr.selection) {
+            let line = tr.state.doc.lineAt(tr.selection.main.head);
+            value = value.update({ filter: from => from >= line.from && from <= line.to });
+        }
+        for (let effect of tr.effects)
+            if (effect.is(closeBracketEffect))
+                value = value.update({ add: [closedBracket.range(effect.value, effect.value + 1)] });
+        return value;
+    }
+});
+/**
+Extension to enable bracket-closing behavior. When a closeable
+bracket is typed, its closing bracket is immediately inserted
+after the cursor. When closing a bracket directly in front of a
+closing bracket inserted by the extension, the cursor moves over
+that bracket.
+*/
+function closeBrackets() {
+    return [inputHandler, bracketState];
+}
+const definedClosing = "()[]{}<>«»»«［］｛｝";
+function closing(ch) {
+    for (let i = 0; i < definedClosing.length; i += 2)
+        if (definedClosing.charCodeAt(i) == ch)
+            return definedClosing.charAt(i + 1);
+    return fromCodePoint(ch < 128 ? ch : ch + 1);
+}
+function config(state, pos) {
+    return state.languageDataAt("closeBrackets", pos)[0] || defaults;
+}
+const android = typeof navigator == "object" && /*@__PURE__*//Android\b/.test(navigator.userAgent);
+const inputHandler = /*@__PURE__*/EditorView.inputHandler.of((view, from, to, insert) => {
+    if ((android ? view.composing : view.compositionStarted) || view.state.readOnly)
+        return false;
+    let sel = view.state.selection.main;
+    if (insert.length > 2 || insert.length == 2 && codePointSize(codePointAt(insert, 0)) == 1 ||
+        from != sel.from || to != sel.to)
+        return false;
+    let tr = insertBracket(view.state, insert);
+    if (!tr)
+        return false;
+    view.dispatch(tr);
+    return true;
+});
+/**
+Command that implements deleting a pair of matching brackets when
+the cursor is between them.
+*/
+const deleteBracketPair = ({ state, dispatch }) => {
+    if (state.readOnly)
+        return false;
+    let conf = config(state, state.selection.main.head);
+    let tokens = conf.brackets || defaults.brackets;
+    let dont = null, changes = state.changeByRange(range => {
+        if (range.empty) {
+            let before = prevChar(state.doc, range.head);
+            for (let token of tokens) {
+                if (token == before && nextChar(state.doc, range.head) == closing(codePointAt(token, 0)))
+                    return { changes: { from: range.head - token.length, to: range.head + token.length },
+                        range: EditorSelection.cursor(range.head - token.length) };
+            }
+        }
+        return { range: dont = range };
+    });
+    if (!dont)
+        dispatch(state.update(changes, { scrollIntoView: true, userEvent: "delete.backward" }));
+    return !dont;
+};
+/**
+Close-brackets related key bindings. Binds Backspace to
+[`deleteBracketPair`](https://codemirror.net/6/docs/ref/#autocomplete.deleteBracketPair).
+*/
+const closeBracketsKeymap = [
+    { key: "Backspace", run: deleteBracketPair }
+];
+/**
+Implements the extension's behavior on text insertion. If the
+given string counts as a bracket in the language around the
+selection, and replacing the selection with it requires custom
+behavior (inserting a closing version or skipping past a
+previously-closed bracket), this function returns a transaction
+representing that custom behavior. (You only need this if you want
+to programmatically insert brackets—the
+[`closeBrackets`](https://codemirror.net/6/docs/ref/#autocomplete.closeBrackets) extension will
+take care of running this for user input.)
+*/
+function insertBracket(state, bracket) {
+    let conf = config(state, state.selection.main.head);
+    let tokens = conf.brackets || defaults.brackets;
+    for (let tok of tokens) {
+        let closed = closing(codePointAt(tok, 0));
+        if (bracket == tok)
+            return closed == tok ? handleSame(state, tok, tokens.indexOf(tok + tok + tok) > -1, conf)
+                : handleOpen(state, tok, closed, conf.before || defaults.before);
+        if (bracket == closed && closedBracketAt(state, state.selection.main.from))
+            return handleClose(state, tok, closed);
+    }
+    return null;
+}
+function closedBracketAt(state, pos) {
+    let found = false;
+    state.field(bracketState).between(0, state.doc.length, from => {
+        if (from == pos)
+            found = true;
+    });
+    return found;
+}
+function nextChar(doc, pos) {
+    let next = doc.sliceString(pos, pos + 2);
+    return next.slice(0, codePointSize(codePointAt(next, 0)));
+}
+function prevChar(doc, pos) {
+    let prev = doc.sliceString(pos - 2, pos);
+    return codePointSize(codePointAt(prev, 0)) == prev.length ? prev : prev.slice(1);
+}
+function handleOpen(state, open, close, closeBefore) {
+    let dont = null, changes = state.changeByRange(range => {
+        if (!range.empty)
+            return { changes: [{ insert: open, from: range.from }, { insert: close, from: range.to }],
+                effects: closeBracketEffect.of(range.to + open.length),
+                range: EditorSelection.range(range.anchor + open.length, range.head + open.length) };
+        let next = nextChar(state.doc, range.head);
+        if (!next || /\s/.test(next) || closeBefore.indexOf(next) > -1)
+            return { changes: { insert: open + close, from: range.head },
+                effects: closeBracketEffect.of(range.head + open.length),
+                range: EditorSelection.cursor(range.head + open.length) };
+        return { range: dont = range };
+    });
+    return dont ? null : state.update(changes, {
+        scrollIntoView: true,
+        userEvent: "input.type"
+    });
+}
+function handleClose(state, _open, close) {
+    let dont = null, changes = state.changeByRange(range => {
+        if (range.empty && nextChar(state.doc, range.head) == close)
+            return { changes: { from: range.head, to: range.head + close.length, insert: close },
+                range: EditorSelection.cursor(range.head + close.length) };
+        return dont = { range };
+    });
+    return dont ? null : state.update(changes, {
+        scrollIntoView: true,
+        userEvent: "input.type"
+    });
+}
+// Handles cases where the open and close token are the same, and
+// possibly triple quotes (as in `"""abc"""`-style quoting).
+function handleSame(state, token, allowTriple, config) {
+    let stringPrefixes = config.stringPrefixes || defaults.stringPrefixes;
+    let dont = null, changes = state.changeByRange(range => {
+        if (!range.empty)
+            return { changes: [{ insert: token, from: range.from }, { insert: token, from: range.to }],
+                effects: closeBracketEffect.of(range.to + token.length),
+                range: EditorSelection.range(range.anchor + token.length, range.head + token.length) };
+        let pos = range.head, next = nextChar(state.doc, pos), start;
+        if (next == token) {
+            if (nodeStart(state, pos)) {
+                return { changes: { insert: token + token, from: pos },
+                    effects: closeBracketEffect.of(pos + token.length),
+                    range: EditorSelection.cursor(pos + token.length) };
+            }
+            else if (closedBracketAt(state, pos)) {
+                let isTriple = allowTriple && state.sliceDoc(pos, pos + token.length * 3) == token + token + token;
+                let content = isTriple ? token + token + token : token;
+                return { changes: { from: pos, to: pos + content.length, insert: content },
+                    range: EditorSelection.cursor(pos + content.length) };
+            }
+        }
+        else if (allowTriple && state.sliceDoc(pos - 2 * token.length, pos) == token + token &&
+            (start = canStartStringAt(state, pos - 2 * token.length, stringPrefixes)) > -1 &&
+            nodeStart(state, start)) {
+            return { changes: { insert: token + token + token + token, from: pos },
+                effects: closeBracketEffect.of(pos + token.length),
+                range: EditorSelection.cursor(pos + token.length) };
+        }
+        else if (state.charCategorizer(pos)(next) != exports.CharCategory.Word) {
+            if (canStartStringAt(state, pos, stringPrefixes) > -1 && !probablyInString(state, pos, token, stringPrefixes))
+                return { changes: { insert: token + token, from: pos },
+                    effects: closeBracketEffect.of(pos + token.length),
+                    range: EditorSelection.cursor(pos + token.length) };
+        }
+        return { range: dont = range };
+    });
+    return dont ? null : state.update(changes, {
+        scrollIntoView: true,
+        userEvent: "input.type"
+    });
+}
+function nodeStart(state, pos) {
+    let tree = syntaxTree(state).resolveInner(pos + 1);
+    return tree.parent && tree.from == pos;
+}
+function probablyInString(state, pos, quoteToken, prefixes) {
+    let node = syntaxTree(state).resolveInner(pos, -1);
+    let maxPrefix = prefixes.reduce((m, p) => Math.max(m, p.length), 0);
+    for (let i = 0; i < 5; i++) {
+        let start = state.sliceDoc(node.from, Math.min(node.to, node.from + quoteToken.length + maxPrefix));
+        let quotePos = start.indexOf(quoteToken);
+        if (!quotePos || quotePos > -1 && prefixes.indexOf(start.slice(0, quotePos)) > -1) {
+            let first = node.firstChild;
+            while (first && first.from == node.from && first.to - first.from > quoteToken.length + quotePos) {
+                if (state.sliceDoc(first.to - quoteToken.length, first.to) == quoteToken)
+                    return false;
+                first = first.firstChild;
+            }
+            return true;
+        }
+        let parent = node.to == pos && node.parent;
+        if (!parent)
+            break;
+        node = parent;
+    }
+    return false;
+}
+function canStartStringAt(state, pos, prefixes) {
+    let charCat = state.charCategorizer(pos);
+    if (charCat(state.sliceDoc(pos - 1, pos)) != exports.CharCategory.Word)
+        return pos;
+    for (let prefix of prefixes) {
+        let start = pos - prefix.length;
+        if (state.sliceDoc(start, pos) == prefix && charCat(state.sliceDoc(start - 1, start)) != exports.CharCategory.Word)
+            return start;
+    }
+    return -1;
+}
+
+/**
+Returns an extension that enables autocompletion.
+*/
+function autocompletion(config = {}) {
+    return [
+        commitCharacters,
+        completionState,
+        completionConfig.of(config),
+        completionPlugin,
+        completionKeymapExt,
+        baseTheme$3
+    ];
+}
+/**
+Basic keybindings for autocompletion.
+
+ - Ctrl-Space (and Alt-\` on macOS): [`startCompletion`](https://codemirror.net/6/docs/ref/#autocomplete.startCompletion)
+ - Escape: [`closeCompletion`](https://codemirror.net/6/docs/ref/#autocomplete.closeCompletion)
+ - ArrowDown: [`moveCompletionSelection`](https://codemirror.net/6/docs/ref/#autocomplete.moveCompletionSelection)`(true)`
+ - ArrowUp: [`moveCompletionSelection`](https://codemirror.net/6/docs/ref/#autocomplete.moveCompletionSelection)`(false)`
+ - PageDown: [`moveCompletionSelection`](https://codemirror.net/6/docs/ref/#autocomplete.moveCompletionSelection)`(true, "page")`
+ - PageDown: [`moveCompletionSelection`](https://codemirror.net/6/docs/ref/#autocomplete.moveCompletionSelection)`(true, "page")`
+ - Enter: [`acceptCompletion`](https://codemirror.net/6/docs/ref/#autocomplete.acceptCompletion)
+*/
+const completionKeymap = [
+    { key: "Ctrl-Space", run: startCompletion },
+    { mac: "Alt-`", run: startCompletion },
+    { key: "Escape", run: closeCompletion },
+    { key: "ArrowDown", run: /*@__PURE__*/moveCompletionSelection(true) },
+    { key: "ArrowUp", run: /*@__PURE__*/moveCompletionSelection(false) },
+    { key: "PageDown", run: /*@__PURE__*/moveCompletionSelection(true, "page") },
+    { key: "PageUp", run: /*@__PURE__*/moveCompletionSelection(false, "page") },
+    { key: "Enter", run: acceptCompletion }
+];
+const completionKeymapExt = /*@__PURE__*/Prec.highest(/*@__PURE__*/keymap.computeN([completionConfig], state => state.facet(completionConfig).defaultKeymap ? [completionKeymap] : []));
+/**
+Get the current completion status. When completions are available,
+this will return `"active"`. When completions are pending (in the
+process of being queried), this returns `"pending"`. Otherwise, it
+returns `null`.
+*/
+function completionStatus(state) {
+    let cState = state.field(completionState, false);
+    return cState && cState.active.some(a => a.isPending) ? "pending"
+        : cState && cState.active.some(a => a.state != 0 /* State.Inactive */) ? "active" : null;
+}
+const completionArrayCache = /*@__PURE__*/new WeakMap;
+/**
+Returns the available completions as an array.
+*/
+function currentCompletions(state) {
+    var _a;
+    let open = (_a = state.field(completionState, false)) === null || _a === void 0 ? void 0 : _a.open;
+    if (!open || open.disabled)
+        return [];
+    let completions = completionArrayCache.get(open.options);
+    if (!completions)
+        completionArrayCache.set(open.options, completions = open.options.map(o => o.completion));
+    return completions;
+}
+/**
+Return the currently selected completion, if any.
+*/
+function selectedCompletion(state) {
+    var _a;
+    let open = (_a = state.field(completionState, false)) === null || _a === void 0 ? void 0 : _a.open;
+    return open && !open.disabled && open.selected >= 0 ? open.options[open.selected].completion : null;
+}
+/**
+Returns the currently selected position in the active completion
+list, or null if no completions are active.
+*/
+function selectedCompletionIndex(state) {
+    var _a;
+    let open = (_a = state.field(completionState, false)) === null || _a === void 0 ? void 0 : _a.open;
+    return open && !open.disabled && open.selected >= 0 ? open.selected : null;
+}
+/**
+Create an effect that can be attached to a transaction to change
+the currently selected completion.
+*/
+function setSelectedCompletion(index) {
+    return setSelectedEffect.of(index);
 }
 
 /**
@@ -19821,7 +22806,7 @@ block comments.
 */
 const toggleBlockCommentByLine = /*@__PURE__*/command((o, s) => changeBlockComment(o, s, selectedLineRanges(s)), 0 /* CommentOption.Toggle */);
 function getConfig(state, pos) {
-    let data = state.languageDataAt("commentTokens", pos);
+    let data = state.languageDataAt("commentTokens", pos, 1);
     return data.length ? data[0] : {};
 }
 const SearchMargin = 50;
@@ -19863,6 +22848,8 @@ function selectedLineRanges(state) {
     for (let r of state.selection.ranges) {
         let fromLine = state.doc.lineAt(r.from);
         let toLine = r.to <= fromLine.to ? fromLine : state.doc.lineAt(r.to);
+        if (toLine.from > fromLine.from && toLine.from == r.to)
+            toLine = r.to == fromLine.to + 1 ? fromLine : state.doc.lineAt(r.to - 1);
         let last = ranges.length - 1;
         if (last >= 0 && ranges[last].to > fromLine.from)
             ranges[last].to = toLine.to;
@@ -19977,11 +22964,6 @@ const historyConfig = /*@__PURE__*/Facet.define({
         });
     }
 });
-function changeEnd(changes) {
-    let end = 0;
-    changes.iterChangedRanges((_, to) => end = to);
-    return end;
-}
 const historyField_ = /*@__PURE__*/StateField.define({
     create() {
         return HistoryState.empty;
@@ -19990,8 +22972,7 @@ const historyField_ = /*@__PURE__*/StateField.define({
         let config = tr.state.facet(historyConfig);
         let fromHist = tr.annotation(fromHistory);
         if (fromHist) {
-            let selection = tr.docChanged ? EditorSelection.single(changeEnd(tr.changes)) : undefined;
-            let item = HistEvent.fromTransaction(tr, selection), from = fromHist.side;
+            let item = HistEvent.fromTransaction(tr, fromHist.selection), from = fromHist.side;
             let other = from == 0 /* BranchName.Done */ ? state.undone : state.done;
             if (item)
                 other = updateBranch(other, other.length, config.minDepth, item);
@@ -20253,7 +23234,7 @@ class HistoryState {
                 config.joinToEvent(tr, isAdjacent(lastEvent.changes, event.changes))) ||
                 // For compose (but not compose.start) events, always join with previous event
                 userEvent == "input.type.compose")) {
-            done = updateBranch(done, done.length - 1, config.minDepth, new HistEvent(event.changes.compose(lastEvent.changes), conc(event.effects, lastEvent.effects), lastEvent.mapped, lastEvent.startSelection, none));
+            done = updateBranch(done, done.length - 1, config.minDepth, new HistEvent(event.changes.compose(lastEvent.changes), conc(StateEffect.mapEffects(event.effects, lastEvent.changes), lastEvent.effects), lastEvent.mapped, lastEvent.startSelection, none));
         }
         else {
             done = updateBranch(done, done.length, config.minDepth, event);
@@ -20272,15 +23253,15 @@ class HistoryState {
     addMapping(mapping) {
         return new HistoryState(addMappingToBranch(this.done, mapping), addMappingToBranch(this.undone, mapping), this.prevTime, this.prevUserEvent);
     }
-    pop(side, state, selection) {
+    pop(side, state, onlySelection) {
         let branch = side == 0 /* BranchName.Done */ ? this.done : this.undone;
         if (branch.length == 0)
             return null;
-        let event = branch[branch.length - 1];
-        if (selection && event.selectionsAfter.length) {
+        let event = branch[branch.length - 1], selection = event.selectionsAfter[0] || state.selection;
+        if (onlySelection && event.selectionsAfter.length) {
             return state.update({
                 selection: event.selectionsAfter[event.selectionsAfter.length - 1],
-                annotations: fromHistory.of({ side, rest: popSelection(branch) }),
+                annotations: fromHistory.of({ side, rest: popSelection(branch), selection }),
                 userEvent: side == 0 /* BranchName.Done */ ? "select.undo" : "select.redo",
                 scrollIntoView: true
             });
@@ -20296,7 +23277,7 @@ class HistoryState {
                 changes: event.changes,
                 selection: event.startSelection,
                 effects: event.effects,
-                annotations: fromHistory.of({ side, rest }),
+                annotations: fromHistory.of({ side, rest, selection }),
                 filter: false,
                 userEvent: side == 0 /* BranchName.Done */ ? "undo" : "redo",
                 scrollIntoView: true
@@ -20329,7 +23310,7 @@ function setSel(state, selection) {
 }
 function moveSel({ state, dispatch }, how) {
     let selection = updateSel(state.selection, how);
-    if (selection.eq(state.selection))
+    if (selection.eq(state.selection, true))
         return false;
     dispatch(setSel(state, selection));
     return true;
@@ -20360,6 +23341,27 @@ const cursorCharForward = view => cursorByChar(view, true);
 Move the selection one character backward.
 */
 const cursorCharBackward = view => cursorByChar(view, false);
+function byCharLogical(state, range, forward) {
+    let pos = range.head, line = state.doc.lineAt(pos);
+    if (pos == (forward ? line.to : line.from))
+        pos = forward ? Math.min(state.doc.length, line.to + 1) : Math.max(0, line.from - 1);
+    else
+        pos = line.from + findClusterBreak(line.text, pos - line.from, forward);
+    return EditorSelection.cursor(pos, forward ? -1 : 1);
+}
+function moveByCharLogical(target, forward) {
+    return moveSel(target, range => range.empty ? byCharLogical(target.state, range, forward) : rangeEnd(range, forward));
+}
+/**
+Move the selection one character forward, in logical
+(non-text-direction-aware) string index order.
+*/
+const cursorCharForwardLogical = target => moveByCharLogical(target, true);
+/**
+Move the selection one character backward, in logical string index
+order.
+*/
+const cursorCharBackwardLogical = target => moveByCharLogical(target, false);
 function cursorByGroup(view, forward) {
     return moveSel(view, range => range.empty ? view.moveByGroup(range, forward) : rangeEnd(range, forward));
 }
@@ -20380,6 +23382,26 @@ const cursorGroupForward = view => cursorByGroup(view, true);
 Move the selection one group backward.
 */
 const cursorGroupBackward = view => cursorByGroup(view, false);
+function toGroupStart(view, pos, start) {
+    let categorize = view.state.charCategorizer(pos);
+    let cat = categorize(start), initial = cat != exports.CharCategory.Space;
+    return (next) => {
+        let nextCat = categorize(next);
+        if (nextCat != exports.CharCategory.Space)
+            return initial && nextCat == cat;
+        initial = false;
+        return true;
+    };
+}
+/**
+Move the cursor one group forward in the default Windows style,
+where it moves to the start of the next group.
+*/
+const cursorGroupForwardWin = view => {
+    return moveSel(view, range => range.empty
+        ? view.moveByChar(range, true, start => toGroupStart(view, range.head, start))
+        : rangeEnd(range, true));
+};
 const segmenter = typeof Intl != "undefined" && Intl.Segmenter ?
     /*@__PURE__*/new (Intl.Segmenter)(undefined, { granularity: "word" }) : null;
 function moveBySubword(view, range, forward) {
@@ -20610,14 +23632,14 @@ Extend the selection to the bracket matching the one the selection
 head is currently on, if any.
 */
 const selectMatchingBracket = ({ state, dispatch }) => toMatchingBracket(state, dispatch, true);
-function extendSel(view, how) {
-    let selection = updateSel(view.state.selection, range => {
+function extendSel(target, how) {
+    let selection = updateSel(target.state.selection, range => {
         let head = how(range);
         return EditorSelection.range(range.anchor, head.head, head.goalColumn, head.bidiLevel || undefined);
     });
-    if (selection.eq(view.state.selection))
+    if (selection.eq(target.state.selection))
         return false;
-    view.dispatch(setSel(view.state, selection));
+    target.dispatch(setSel(target.state, selection));
     return true;
 }
 function selectByChar(view, forward) {
@@ -20640,6 +23662,16 @@ const selectCharForward = view => selectByChar(view, true);
 Move the selection head one character backward.
 */
 const selectCharBackward = view => selectByChar(view, false);
+/**
+Move the selection head one character forward by logical
+(non-direction aware) string index order.
+*/
+const selectCharForwardLogical = target => extendSel(target, range => byCharLogical(target.state, range, true));
+/**
+Move the selection head one character backward by logical string
+index order.
+*/
+const selectCharBackwardLogical = target => extendSel(target, range => byCharLogical(target.state, range, false));
 function selectByGroup(view, forward) {
     return extendSel(view, range => view.moveByGroup(range, forward));
 }
@@ -20660,6 +23692,13 @@ const selectGroupForward = view => selectByGroup(view, true);
 Move the selection head one group backward.
 */
 const selectGroupBackward = view => selectByGroup(view, false);
+/**
+Move the selection head one group forward in the default Windows
+style, skipping to the start of the next group.
+*/
+const selectGroupForwardWin = view => {
+    return extendSel(view, range => view.moveByChar(range, true, start => toGroupStart(view, range.head, start)));
+};
 function selectBySubword(view, forward) {
     return extendSel(view, range => moveBySubword(view, range, forward));
 }
@@ -20776,14 +23815,23 @@ syntax tree.
 */
 const selectParentSyntax = ({ state, dispatch }) => {
     let selection = updateSel(state.selection, range => {
-        var _a;
-        let context = syntaxTree(state).resolveInner(range.head, 1);
-        while (!((context.from < range.from && context.to >= range.to) ||
-            (context.to > range.to && context.from <= range.from) ||
-            !((_a = context.parent) === null || _a === void 0 ? void 0 : _a.parent)))
-            context = context.parent;
-        return EditorSelection.range(context.to, context.from);
+        let tree = syntaxTree(state), stack = tree.resolveStack(range.from, 1);
+        if (range.empty) {
+            let stackBefore = tree.resolveStack(range.from, -1);
+            if (stackBefore.node.from >= stack.node.from && stackBefore.node.to <= stack.node.to)
+                stack = stackBefore;
+        }
+        for (let cur = stack; cur; cur = cur.next) {
+            let { node } = cur;
+            if (((node.from < range.from && node.to >= range.to) ||
+                (node.to > range.to && node.from <= range.from)) &&
+                cur.next)
+                return EditorSelection.range(node.to, node.from);
+        }
+        return range;
     });
+    if (selection.eq(state.selection))
+        return false;
     dispatch(setSel(state, selection));
     return true;
 };
@@ -20810,7 +23858,7 @@ function deleteBy(target, by) {
     let changes = state.changeByRange(range => {
         let { from, to } = range;
         if (from == to) {
-            let towards = by(from);
+            let towards = by(range);
             if (towards < from) {
                 event = "delete.backward";
                 towards = skipAtomic(target, towards, false);
@@ -20826,7 +23874,7 @@ function deleteBy(target, by) {
             from = skipAtomic(target, from, false);
             to = skipAtomic(target, to, true);
         }
-        return from == to ? { range } : { changes: { from, to }, range: EditorSelection.cursor(from) };
+        return from == to ? { range } : { changes: { from, to }, range: EditorSelection.cursor(from, from < range.head ? -1 : 1) };
     });
     if (changes.changes.empty)
         return false;
@@ -20846,9 +23894,9 @@ function skipAtomic(target, pos, forward) {
             });
     return pos;
 }
-const deleteByChar = (target, forward) => deleteBy(target, pos => {
-    let { state } = target, line = state.doc.lineAt(pos), before, targetPos;
-    if (!forward && pos > line.from && pos < line.from + 200 &&
+const deleteByChar = (target, forward, byIndentUnit) => deleteBy(target, range => {
+    let pos = range.from, { state } = target, line = state.doc.lineAt(pos), before, targetPos;
+    if (byIndentUnit && !forward && pos > line.from && pos < line.from + 200 &&
         !/[^ \t]/.test(before = line.text.slice(0, pos - line.from))) {
         if (before[before.length - 1] == "\t")
             return pos - 1;
@@ -20861,24 +23909,32 @@ const deleteByChar = (target, forward) => deleteBy(target, pos => {
         targetPos = findClusterBreak(line.text, pos - line.from, forward, forward) + line.from;
         if (targetPos == pos && line.number != (forward ? state.doc.lines : 1))
             targetPos += forward ? 1 : -1;
+        else if (!forward && /[\ufe00-\ufe0f]/.test(line.text.slice(targetPos - line.from, pos - line.from)))
+            targetPos = findClusterBreak(line.text, targetPos - line.from, false, false) + line.from;
     }
     return targetPos;
 });
 /**
-Delete the selection, or, for cursor selections, the character
-before the cursor.
+Delete the selection, or, for cursor selections, the character or
+indentation unit before the cursor.
 */
-const deleteCharBackward = view => deleteByChar(view, false);
+const deleteCharBackward = view => deleteByChar(view, false, true);
+/**
+Delete the selection or the character before the cursor. Does not
+implement any extended behavior like deleting whole indentation
+units in one go.
+*/
+const deleteCharBackwardStrict = view => deleteByChar(view, false, false);
 /**
 Delete the selection or the character after the cursor.
 */
-const deleteCharForward = view => deleteByChar(view, true);
-const deleteByGroup = (target, forward) => deleteBy(target, start => {
-    let pos = start, { state } = target, line = state.doc.lineAt(pos);
+const deleteCharForward = view => deleteByChar(view, true, false);
+const deleteByGroup = (target, forward) => deleteBy(target, range => {
+    let pos = range.head, { state } = target, line = state.doc.lineAt(pos);
     let categorize = state.charCategorizer(pos);
     for (let cat = null;;) {
         if (pos == (forward ? line.to : line.from)) {
-            if (pos == start && line.number != (forward ? state.doc.lines : 1))
+            if (pos == range.head && line.number != (forward ? state.doc.lines : 1))
                 pos += forward ? 1 : -1;
             break;
         }
@@ -20887,7 +23943,7 @@ const deleteByGroup = (target, forward) => deleteBy(target, start => {
         let nextCat = categorize(nextChar);
         if (cat != null && nextCat != cat)
             break;
-        if (nextChar != " " || pos != start)
+        if (nextChar != " " || pos != range.head)
             cat = nextCat;
         pos = next;
     }
@@ -20908,18 +23964,34 @@ Delete the selection, or, if it is a cursor selection, delete to
 the end of the line. If the cursor is directly at the end of the
 line, delete the line break after it.
 */
-const deleteToLineEnd = view => deleteBy(view, pos => {
-    let lineEnd = view.lineBlockAt(pos).to;
-    return pos < lineEnd ? lineEnd : Math.min(view.state.doc.length, pos + 1);
+const deleteToLineEnd = view => deleteBy(view, range => {
+    let lineEnd = view.lineBlockAt(range.head).to;
+    return range.head < lineEnd ? lineEnd : Math.min(view.state.doc.length, range.head + 1);
 });
 /**
 Delete the selection, or, if it is a cursor selection, delete to
 the start of the line. If the cursor is directly at the start of the
 line, delete the line break before it.
 */
-const deleteToLineStart = view => deleteBy(view, pos => {
-    let lineStart = view.lineBlockAt(pos).from;
-    return pos > lineStart ? lineStart : Math.max(0, pos - 1);
+const deleteToLineStart = view => deleteBy(view, range => {
+    let lineStart = view.lineBlockAt(range.head).from;
+    return range.head > lineStart ? lineStart : Math.max(0, range.head - 1);
+});
+/**
+Delete the selection, or, if it is a cursor selection, delete to
+the start of the line or the next line wrap before the cursor.
+*/
+const deleteLineBoundaryBackward = view => deleteBy(view, range => {
+    let lineStart = view.moveToLineBoundary(range, false).head;
+    return range.head > lineStart ? lineStart : Math.max(0, range.head - 1);
+});
+/**
+Delete the selection, or, if it is a cursor selection, delete to
+the end of the line or the next line wrap after the cursor.
+*/
+const deleteLineBoundaryForward = view => deleteBy(view, range => {
+    let lineStart = view.moveToLineBoundary(range, true).head;
+    return range.head < lineStart ? lineStart : Math.min(view.state.doc.length, range.head + 1);
 });
 /**
 Delete all whitespace directly before a line end from the
@@ -21073,7 +24145,15 @@ const deleteLine = view => {
             to++;
         return { from, to };
     }));
-    let selection = updateSel(state.selection, range => view.moveVertically(range, true)).map(changes);
+    let selection = updateSel(state.selection, range => {
+        let dist = undefined;
+        if (view.lineWrapping) {
+            let block = view.lineBlockAt(range.head), pos = view.coordsAtPos(range.head, range.assoc || 1);
+            if (pos)
+                dist = (block.bottom + view.documentTop) - pos.bottom + view.defaultLineHeight / 2;
+        }
+        return view.moveVertically(range, true, dist);
+    }).map(changes);
     view.dispatch({ changes, selection, scrollIntoView: true, userEvent: "delete.line" });
     return true;
 };
@@ -21082,6 +24162,20 @@ Replace the selection with a newline.
 */
 const insertNewline = ({ state, dispatch }) => {
     dispatch(state.update(state.replaceSelection(state.lineBreak), { scrollIntoView: true, userEvent: "input" }));
+    return true;
+};
+/**
+Replace the selection with a newline and the same amount of
+indentation as the line above.
+*/
+const insertNewlineKeepIndent = ({ state, dispatch }) => {
+    dispatch(state.update(state.changeByRange(range => {
+        let indent = /^\s*/.exec(state.doc.lineAt(range.from).text)[0];
+        return {
+            changes: { from: range.from, to: range.to, insert: state.lineBreak + indent },
+            range: EditorSelection.cursor(range.from + indent.length + 1)
+        };
+    }), { scrollIntoView: true, userEvent: "input" }));
     return true;
 };
 function isBetweenBrackets(state, pos) {
@@ -21216,6 +24310,26 @@ const indentLess = ({ state, dispatch }) => {
     return true;
 };
 /**
+Enables or disables
+[tab-focus mode](https://codemirror.net/6/docs/ref/#view.EditorView.setTabFocusMode). While on, this
+prevents the editor's key bindings from capturing Tab or
+Shift-Tab, making it possible for the user to move focus out of
+the editor with the keyboard.
+*/
+const toggleTabFocusMode = view => {
+    view.setTabFocusMode();
+    return true;
+};
+/**
+Temporarily enables [tab-focus
+mode](https://codemirror.net/6/docs/ref/#view.EditorView.setTabFocusMode) for two seconds or until
+another key is pressed.
+*/
+const temporarilySetTabFocusMode = view => {
+    view.setTabFocusMode(2000);
+    return true;
+};
+/**
 Insert a tab character at the cursor or, if something is selected,
 use [`indentMore`](https://codemirror.net/6/docs/ref/#commands.indentMore) to indent the entire
 selection.
@@ -21284,14 +24398,14 @@ property changed to `mac`.)
  - End: [`cursorLineBoundaryForward`](https://codemirror.net/6/docs/ref/#commands.cursorLineBoundaryForward) ([`selectLineBoundaryForward`](https://codemirror.net/6/docs/ref/#commands.selectLineBoundaryForward) with Shift)
  - Ctrl-Home (Cmd-Home on macOS): [`cursorDocStart`](https://codemirror.net/6/docs/ref/#commands.cursorDocStart) ([`selectDocStart`](https://codemirror.net/6/docs/ref/#commands.selectDocStart) with Shift)
  - Ctrl-End (Cmd-Home on macOS): [`cursorDocEnd`](https://codemirror.net/6/docs/ref/#commands.cursorDocEnd) ([`selectDocEnd`](https://codemirror.net/6/docs/ref/#commands.selectDocEnd) with Shift)
- - Enter: [`insertNewlineAndIndent`](https://codemirror.net/6/docs/ref/#commands.insertNewlineAndIndent)
+ - Enter and Shift-Enter: [`insertNewlineAndIndent`](https://codemirror.net/6/docs/ref/#commands.insertNewlineAndIndent)
  - Ctrl-a (Cmd-a on macOS): [`selectAll`](https://codemirror.net/6/docs/ref/#commands.selectAll)
  - Backspace: [`deleteCharBackward`](https://codemirror.net/6/docs/ref/#commands.deleteCharBackward)
  - Delete: [`deleteCharForward`](https://codemirror.net/6/docs/ref/#commands.deleteCharForward)
  - Ctrl-Backspace (Alt-Backspace on macOS): [`deleteGroupBackward`](https://codemirror.net/6/docs/ref/#commands.deleteGroupBackward)
  - Ctrl-Delete (Alt-Delete on macOS): [`deleteGroupForward`](https://codemirror.net/6/docs/ref/#commands.deleteGroupForward)
- - Cmd-Backspace (macOS): [`deleteToLineStart`](https://codemirror.net/6/docs/ref/#commands.deleteToLineStart).
- - Cmd-Delete (macOS): [`deleteToLineEnd`](https://codemirror.net/6/docs/ref/#commands.deleteToLineEnd).
+ - Cmd-Backspace (macOS): [`deleteLineBoundaryBackward`](https://codemirror.net/6/docs/ref/#commands.deleteLineBoundaryBackward).
+ - Cmd-Delete (macOS): [`deleteLineBoundaryForward`](https://codemirror.net/6/docs/ref/#commands.deleteLineBoundaryForward).
 */
 const standardKeymap = /*@__PURE__*/[
     { key: "ArrowLeft", run: cursorCharLeft, shift: selectCharLeft, preventDefault: true },
@@ -21312,14 +24426,14 @@ const standardKeymap = /*@__PURE__*/[
     { key: "Mod-Home", run: cursorDocStart, shift: selectDocStart },
     { key: "End", run: cursorLineBoundaryForward, shift: selectLineBoundaryForward, preventDefault: true },
     { key: "Mod-End", run: cursorDocEnd, shift: selectDocEnd },
-    { key: "Enter", run: insertNewlineAndIndent },
+    { key: "Enter", run: insertNewlineAndIndent, shift: insertNewlineAndIndent },
     { key: "Mod-a", run: selectAll },
     { key: "Backspace", run: deleteCharBackward, shift: deleteCharBackward },
     { key: "Delete", run: deleteCharForward },
     { key: "Mod-Backspace", mac: "Alt-Backspace", run: deleteGroupBackward },
     { key: "Mod-Delete", mac: "Alt-Delete", run: deleteGroupForward },
-    { mac: "Mod-Backspace", run: deleteToLineStart },
-    { mac: "Mod-Delete", run: deleteToLineEnd }
+    { mac: "Mod-Backspace", run: deleteLineBoundaryBackward },
+    { mac: "Mod-Delete", run: deleteLineBoundaryForward }
 ].concat(/*@__PURE__*/emacsStyleKeymap.map(b => ({ mac: b.key, run: b.run, shift: b.shift })));
 /**
 The default keymap. Includes all bindings from
@@ -21342,6 +24456,7 @@ The default keymap. Includes all bindings from
 - Shift-Ctrl-\\ (Shift-Cmd-\\ on macOS): [`cursorMatchingBracket`](https://codemirror.net/6/docs/ref/#commands.cursorMatchingBracket)
 - Ctrl-/ (Cmd-/ on macOS): [`toggleComment`](https://codemirror.net/6/docs/ref/#commands.toggleComment).
 - Shift-Alt-a: [`toggleBlockComment`](https://codemirror.net/6/docs/ref/#commands.toggleBlockComment).
+- Ctrl-m (Alt-Shift-m on macOS): [`toggleTabFocusMode`](https://codemirror.net/6/docs/ref/#commands.toggleTabFocusMode).
 */
 const defaultKeymap = /*@__PURE__*/[
     { key: "Alt-ArrowLeft", mac: "Ctrl-ArrowLeft", run: cursorSyntaxLeft, shift: selectSyntaxLeft },
@@ -21360,7 +24475,8 @@ const defaultKeymap = /*@__PURE__*/[
     { key: "Shift-Mod-k", run: deleteLine },
     { key: "Shift-Mod-\\", run: cursorMatchingBracket },
     { key: "Mod-/", run: toggleComment },
-    { key: "Alt-A", run: toggleBlockComment }
+    { key: "Alt-A", run: toggleBlockComment },
+    { key: "Ctrl-m", mac: "Shift-Alt-m", run: toggleTabFocusMode },
 ].concat(standardKeymap);
 /**
 A binding that binds Tab to [`indentMore`](https://codemirror.net/6/docs/ref/#commands.indentMore) and
@@ -21396,6 +24512,896 @@ function add(elt, child) {
   } else {
     throw new RangeError("Unsupported child node: " + child)
   }
+}
+
+class SelectedDiagnostic {
+    constructor(from, to, diagnostic) {
+        this.from = from;
+        this.to = to;
+        this.diagnostic = diagnostic;
+    }
+}
+class LintState {
+    constructor(diagnostics, panel, selected) {
+        this.diagnostics = diagnostics;
+        this.panel = panel;
+        this.selected = selected;
+    }
+    static init(diagnostics, panel, state) {
+        // Filter the list of diagnostics for which to create markers
+        let markedDiagnostics = diagnostics;
+        let diagnosticFilter = state.facet(lintConfig).markerFilter;
+        if (diagnosticFilter)
+            markedDiagnostics = diagnosticFilter(markedDiagnostics, state);
+        let sorted = diagnostics.slice().sort((a, b) => a.from - b.from || a.to - b.to);
+        let deco = new RangeSetBuilder(), active = [], pos = 0;
+        for (let i = 0;;) {
+            let next = i == sorted.length ? null : sorted[i];
+            if (!next && !active.length)
+                break;
+            let from, to;
+            if (active.length) {
+                from = pos;
+                to = active.reduce((p, d) => Math.min(p, d.to), next && next.from > from ? next.from : 1e8);
+            }
+            else {
+                from = next.from;
+                to = next.to;
+                active.push(next);
+                i++;
+            }
+            while (i < sorted.length) {
+                let next = sorted[i];
+                if (next.from == from && (next.to > next.from || next.to == from)) {
+                    active.push(next);
+                    i++;
+                    to = Math.min(next.to, to);
+                }
+                else {
+                    to = Math.min(next.from, to);
+                    break;
+                }
+            }
+            let sev = maxSeverity(active);
+            if (active.some(d => d.from == d.to || (d.from == d.to - 1 && state.doc.lineAt(d.from).to == d.from))) {
+                deco.add(from, from, Decoration.widget({
+                    widget: new DiagnosticWidget(sev),
+                    diagnostics: active.slice()
+                }));
+            }
+            else {
+                let markClass = active.reduce((c, d) => d.markClass ? c + " " + d.markClass : c, "");
+                deco.add(from, to, Decoration.mark({
+                    class: "cm-lintRange cm-lintRange-" + sev + markClass,
+                    diagnostics: active.slice(),
+                    inclusiveEnd: active.some(a => a.to > to)
+                }));
+            }
+            pos = to;
+            for (let i = 0; i < active.length; i++)
+                if (active[i].to <= pos)
+                    active.splice(i--, 1);
+        }
+        let set = deco.finish();
+        return new LintState(set, panel, findDiagnostic(set));
+    }
+}
+function findDiagnostic(diagnostics, diagnostic = null, after = 0) {
+    let found = null;
+    diagnostics.between(after, 1e9, (from, to, { spec }) => {
+        if (diagnostic && spec.diagnostics.indexOf(diagnostic) < 0)
+            return;
+        if (!found)
+            found = new SelectedDiagnostic(from, to, diagnostic || spec.diagnostics[0]);
+        else if (spec.diagnostics.indexOf(found.diagnostic) < 0)
+            return false;
+        else
+            found = new SelectedDiagnostic(found.from, to, found.diagnostic);
+    });
+    return found;
+}
+function hideTooltip(tr, tooltip) {
+    let from = tooltip.pos, to = tooltip.end || from;
+    let result = tr.state.facet(lintConfig).hideOn(tr, from, to);
+    if (result != null)
+        return result;
+    let line = tr.startState.doc.lineAt(tooltip.pos);
+    return !!(tr.effects.some(e => e.is(setDiagnosticsEffect)) || tr.changes.touchesRange(line.from, Math.max(line.to, to)));
+}
+function maybeEnableLint(state, effects) {
+    return state.field(lintState, false) ? effects : effects.concat(StateEffect.appendConfig.of(lintExtensions));
+}
+/**
+Returns a transaction spec which updates the current set of
+diagnostics, and enables the lint extension if if wasn't already
+active.
+*/
+function setDiagnostics(state, diagnostics) {
+    return {
+        effects: maybeEnableLint(state, [setDiagnosticsEffect.of(diagnostics)])
+    };
+}
+/**
+The state effect that updates the set of active diagnostics. Can
+be useful when writing an extension that needs to track these.
+*/
+const setDiagnosticsEffect = /*@__PURE__*/StateEffect.define();
+const togglePanel$1 = /*@__PURE__*/StateEffect.define();
+const movePanelSelection = /*@__PURE__*/StateEffect.define();
+const lintState = /*@__PURE__*/StateField.define({
+    create() {
+        return new LintState(Decoration.none, null, null);
+    },
+    update(value, tr) {
+        if (tr.docChanged && value.diagnostics.size) {
+            let mapped = value.diagnostics.map(tr.changes), selected = null, panel = value.panel;
+            if (value.selected) {
+                let selPos = tr.changes.mapPos(value.selected.from, 1);
+                selected = findDiagnostic(mapped, value.selected.diagnostic, selPos) || findDiagnostic(mapped, null, selPos);
+            }
+            if (!mapped.size && panel && tr.state.facet(lintConfig).autoPanel)
+                panel = null;
+            value = new LintState(mapped, panel, selected);
+        }
+        for (let effect of tr.effects) {
+            if (effect.is(setDiagnosticsEffect)) {
+                let panel = !tr.state.facet(lintConfig).autoPanel ? value.panel : effect.value.length ? LintPanel.open : null;
+                value = LintState.init(effect.value, panel, tr.state);
+            }
+            else if (effect.is(togglePanel$1)) {
+                value = new LintState(value.diagnostics, effect.value ? LintPanel.open : null, value.selected);
+            }
+            else if (effect.is(movePanelSelection)) {
+                value = new LintState(value.diagnostics, value.panel, effect.value);
+            }
+        }
+        return value;
+    },
+    provide: f => [showPanel.from(f, val => val.panel),
+        EditorView.decorations.from(f, s => s.diagnostics)]
+});
+/**
+Returns the number of active lint diagnostics in the given state.
+*/
+function diagnosticCount(state) {
+    let lint = state.field(lintState, false);
+    return lint ? lint.diagnostics.size : 0;
+}
+const activeMark = /*@__PURE__*/Decoration.mark({ class: "cm-lintRange cm-lintRange-active" });
+function lintTooltip(view, pos, side) {
+    let { diagnostics } = view.state.field(lintState);
+    let found, start = -1, end = -1;
+    diagnostics.between(pos - (side < 0 ? 1 : 0), pos + (side > 0 ? 1 : 0), (from, to, { spec }) => {
+        if (pos >= from && pos <= to &&
+            (from == to || ((pos > from || side > 0) && (pos < to || side < 0)))) {
+            found = spec.diagnostics;
+            start = from;
+            end = to;
+            return false;
+        }
+    });
+    let diagnosticFilter = view.state.facet(lintConfig).tooltipFilter;
+    if (found && diagnosticFilter)
+        found = diagnosticFilter(found, view.state);
+    if (!found)
+        return null;
+    return {
+        pos: start,
+        end: end,
+        above: view.state.doc.lineAt(start).to < end,
+        create() {
+            return { dom: diagnosticsTooltip(view, found) };
+        }
+    };
+}
+function diagnosticsTooltip(view, diagnostics) {
+    return crelt("ul", { class: "cm-tooltip-lint" }, diagnostics.map(d => renderDiagnostic(view, d, false)));
+}
+/**
+Command to open and focus the lint panel.
+*/
+const openLintPanel = (view) => {
+    let field = view.state.field(lintState, false);
+    if (!field || !field.panel)
+        view.dispatch({ effects: maybeEnableLint(view.state, [togglePanel$1.of(true)]) });
+    let panel = getPanel(view, LintPanel.open);
+    if (panel)
+        panel.dom.querySelector(".cm-panel-lint ul").focus();
+    return true;
+};
+/**
+Command to close the lint panel, when open.
+*/
+const closeLintPanel = (view) => {
+    let field = view.state.field(lintState, false);
+    if (!field || !field.panel)
+        return false;
+    view.dispatch({ effects: togglePanel$1.of(false) });
+    return true;
+};
+/**
+Move the selection to the next diagnostic.
+*/
+const nextDiagnostic = (view) => {
+    let field = view.state.field(lintState, false);
+    if (!field)
+        return false;
+    let sel = view.state.selection.main, next = field.diagnostics.iter(sel.to + 1);
+    if (!next.value) {
+        next = field.diagnostics.iter(0);
+        if (!next.value || next.from == sel.from && next.to == sel.to)
+            return false;
+    }
+    view.dispatch({ selection: { anchor: next.from, head: next.to }, scrollIntoView: true });
+    return true;
+};
+/**
+Move the selection to the previous diagnostic.
+*/
+const previousDiagnostic = (view) => {
+    let { state } = view, field = state.field(lintState, false);
+    if (!field)
+        return false;
+    let sel = state.selection.main;
+    let prevFrom, prevTo, lastFrom, lastTo;
+    field.diagnostics.between(0, state.doc.length, (from, to) => {
+        if (to < sel.to && (prevFrom == null || prevFrom < from)) {
+            prevFrom = from;
+            prevTo = to;
+        }
+        if (lastFrom == null || from > lastFrom) {
+            lastFrom = from;
+            lastTo = to;
+        }
+    });
+    if (lastFrom == null || prevFrom == null && lastFrom == sel.from)
+        return false;
+    view.dispatch({ selection: { anchor: prevFrom !== null && prevFrom !== void 0 ? prevFrom : lastFrom, head: prevTo !== null && prevTo !== void 0 ? prevTo : lastTo }, scrollIntoView: true });
+    return true;
+};
+/**
+A set of default key bindings for the lint functionality.
+
+- Ctrl-Shift-m (Cmd-Shift-m on macOS): [`openLintPanel`](https://codemirror.net/6/docs/ref/#lint.openLintPanel)
+- F8: [`nextDiagnostic`](https://codemirror.net/6/docs/ref/#lint.nextDiagnostic)
+*/
+const lintKeymap = [
+    { key: "Mod-Shift-m", run: openLintPanel, preventDefault: true },
+    { key: "F8", run: nextDiagnostic }
+];
+const lintPlugin = /*@__PURE__*/ViewPlugin.fromClass(class {
+    constructor(view) {
+        this.view = view;
+        this.timeout = -1;
+        this.set = true;
+        let { delay } = view.state.facet(lintConfig);
+        this.lintTime = Date.now() + delay;
+        this.run = this.run.bind(this);
+        this.timeout = setTimeout(this.run, delay);
+    }
+    run() {
+        clearTimeout(this.timeout);
+        let now = Date.now();
+        if (now < this.lintTime - 10) {
+            this.timeout = setTimeout(this.run, this.lintTime - now);
+        }
+        else {
+            this.set = false;
+            let { state } = this.view, { sources } = state.facet(lintConfig);
+            if (sources.length)
+                batchResults(sources.map(s => Promise.resolve(s(this.view))), annotations => {
+                    if (this.view.state.doc == state.doc)
+                        this.view.dispatch(setDiagnostics(this.view.state, annotations.reduce((a, b) => a.concat(b))));
+                }, error => { logException(this.view.state, error); });
+        }
+    }
+    update(update) {
+        let config = update.state.facet(lintConfig);
+        if (update.docChanged || config != update.startState.facet(lintConfig) ||
+            config.needsRefresh && config.needsRefresh(update)) {
+            this.lintTime = Date.now() + config.delay;
+            if (!this.set) {
+                this.set = true;
+                this.timeout = setTimeout(this.run, config.delay);
+            }
+        }
+    }
+    force() {
+        if (this.set) {
+            this.lintTime = Date.now();
+            this.run();
+        }
+    }
+    destroy() {
+        clearTimeout(this.timeout);
+    }
+});
+function batchResults(promises, sink, error) {
+    let collected = [], timeout = -1;
+    for (let p of promises)
+        p.then(value => {
+            collected.push(value);
+            clearTimeout(timeout);
+            if (collected.length == promises.length)
+                sink(collected);
+            else
+                timeout = setTimeout(() => sink(collected), 200);
+        }, error);
+}
+const lintConfig = /*@__PURE__*/Facet.define({
+    combine(input) {
+        return Object.assign({ sources: input.map(i => i.source).filter(x => x != null) }, combineConfig(input.map(i => i.config), {
+            delay: 750,
+            markerFilter: null,
+            tooltipFilter: null,
+            needsRefresh: null,
+            hideOn: () => null,
+        }, {
+            needsRefresh: (a, b) => !a ? b : !b ? a : u => a(u) || b(u)
+        }));
+    }
+});
+/**
+Given a diagnostic source, this function returns an extension that
+enables linting with that source. It will be called whenever the
+editor is idle (after its content changed). If `null` is given as
+source, this only configures the lint extension.
+*/
+function linter(source, config = {}) {
+    return [
+        lintConfig.of({ source, config }),
+        lintPlugin,
+        lintExtensions
+    ];
+}
+/**
+Forces any linters [configured](https://codemirror.net/6/docs/ref/#lint.linter) to run when the
+editor is idle to run right away.
+*/
+function forceLinting(view) {
+    let plugin = view.plugin(lintPlugin);
+    if (plugin)
+        plugin.force();
+}
+function assignKeys(actions) {
+    let assigned = [];
+    if (actions)
+        actions: for (let { name } of actions) {
+            for (let i = 0; i < name.length; i++) {
+                let ch = name[i];
+                if (/[a-zA-Z]/.test(ch) && !assigned.some(c => c.toLowerCase() == ch.toLowerCase())) {
+                    assigned.push(ch);
+                    continue actions;
+                }
+            }
+            assigned.push("");
+        }
+    return assigned;
+}
+function renderDiagnostic(view, diagnostic, inPanel) {
+    var _a;
+    let keys = inPanel ? assignKeys(diagnostic.actions) : [];
+    return crelt("li", { class: "cm-diagnostic cm-diagnostic-" + diagnostic.severity }, crelt("span", { class: "cm-diagnosticText" }, diagnostic.renderMessage ? diagnostic.renderMessage(view) : diagnostic.message), (_a = diagnostic.actions) === null || _a === void 0 ? void 0 : _a.map((action, i) => {
+        let fired = false, click = (e) => {
+            e.preventDefault();
+            if (fired)
+                return;
+            fired = true;
+            let found = findDiagnostic(view.state.field(lintState).diagnostics, diagnostic);
+            if (found)
+                action.apply(view, found.from, found.to);
+        };
+        let { name } = action, keyIndex = keys[i] ? name.indexOf(keys[i]) : -1;
+        let nameElt = keyIndex < 0 ? name : [name.slice(0, keyIndex),
+            crelt("u", name.slice(keyIndex, keyIndex + 1)),
+            name.slice(keyIndex + 1)];
+        return crelt("button", {
+            type: "button",
+            class: "cm-diagnosticAction",
+            onclick: click,
+            onmousedown: click,
+            "aria-label": ` Action: ${name}${keyIndex < 0 ? "" : ` (access key "${keys[i]})"`}.`
+        }, nameElt);
+    }), diagnostic.source && crelt("div", { class: "cm-diagnosticSource" }, diagnostic.source));
+}
+class DiagnosticWidget extends WidgetType {
+    constructor(sev) {
+        super();
+        this.sev = sev;
+    }
+    eq(other) { return other.sev == this.sev; }
+    toDOM() {
+        return crelt("span", { class: "cm-lintPoint cm-lintPoint-" + this.sev });
+    }
+}
+class PanelItem {
+    constructor(view, diagnostic) {
+        this.diagnostic = diagnostic;
+        this.id = "item_" + Math.floor(Math.random() * 0xffffffff).toString(16);
+        this.dom = renderDiagnostic(view, diagnostic, true);
+        this.dom.id = this.id;
+        this.dom.setAttribute("role", "option");
+    }
+}
+class LintPanel {
+    constructor(view) {
+        this.view = view;
+        this.items = [];
+        let onkeydown = (event) => {
+            if (event.keyCode == 27) { // Escape
+                closeLintPanel(this.view);
+                this.view.focus();
+            }
+            else if (event.keyCode == 38 || event.keyCode == 33) { // ArrowUp, PageUp
+                this.moveSelection((this.selectedIndex - 1 + this.items.length) % this.items.length);
+            }
+            else if (event.keyCode == 40 || event.keyCode == 34) { // ArrowDown, PageDown
+                this.moveSelection((this.selectedIndex + 1) % this.items.length);
+            }
+            else if (event.keyCode == 36) { // Home
+                this.moveSelection(0);
+            }
+            else if (event.keyCode == 35) { // End
+                this.moveSelection(this.items.length - 1);
+            }
+            else if (event.keyCode == 13) { // Enter
+                this.view.focus();
+            }
+            else if (event.keyCode >= 65 && event.keyCode <= 90 && this.selectedIndex >= 0) { // A-Z
+                let { diagnostic } = this.items[this.selectedIndex], keys = assignKeys(diagnostic.actions);
+                for (let i = 0; i < keys.length; i++)
+                    if (keys[i].toUpperCase().charCodeAt(0) == event.keyCode) {
+                        let found = findDiagnostic(this.view.state.field(lintState).diagnostics, diagnostic);
+                        if (found)
+                            diagnostic.actions[i].apply(view, found.from, found.to);
+                    }
+            }
+            else {
+                return;
+            }
+            event.preventDefault();
+        };
+        let onclick = (event) => {
+            for (let i = 0; i < this.items.length; i++) {
+                if (this.items[i].dom.contains(event.target))
+                    this.moveSelection(i);
+            }
+        };
+        this.list = crelt("ul", {
+            tabIndex: 0,
+            role: "listbox",
+            "aria-label": this.view.state.phrase("Diagnostics"),
+            onkeydown,
+            onclick
+        });
+        this.dom = crelt("div", { class: "cm-panel-lint" }, this.list, crelt("button", {
+            type: "button",
+            name: "close",
+            "aria-label": this.view.state.phrase("close"),
+            onclick: () => closeLintPanel(this.view)
+        }, "×"));
+        this.update();
+    }
+    get selectedIndex() {
+        let selected = this.view.state.field(lintState).selected;
+        if (!selected)
+            return -1;
+        for (let i = 0; i < this.items.length; i++)
+            if (this.items[i].diagnostic == selected.diagnostic)
+                return i;
+        return -1;
+    }
+    update() {
+        let { diagnostics, selected } = this.view.state.field(lintState);
+        let i = 0, needsSync = false, newSelectedItem = null;
+        let seen = new Set();
+        diagnostics.between(0, this.view.state.doc.length, (_start, _end, { spec }) => {
+            for (let diagnostic of spec.diagnostics) {
+                if (seen.has(diagnostic))
+                    continue;
+                seen.add(diagnostic);
+                let found = -1, item;
+                for (let j = i; j < this.items.length; j++)
+                    if (this.items[j].diagnostic == diagnostic) {
+                        found = j;
+                        break;
+                    }
+                if (found < 0) {
+                    item = new PanelItem(this.view, diagnostic);
+                    this.items.splice(i, 0, item);
+                    needsSync = true;
+                }
+                else {
+                    item = this.items[found];
+                    if (found > i) {
+                        this.items.splice(i, found - i);
+                        needsSync = true;
+                    }
+                }
+                if (selected && item.diagnostic == selected.diagnostic) {
+                    if (!item.dom.hasAttribute("aria-selected")) {
+                        item.dom.setAttribute("aria-selected", "true");
+                        newSelectedItem = item;
+                    }
+                }
+                else if (item.dom.hasAttribute("aria-selected")) {
+                    item.dom.removeAttribute("aria-selected");
+                }
+                i++;
+            }
+        });
+        while (i < this.items.length && !(this.items.length == 1 && this.items[0].diagnostic.from < 0)) {
+            needsSync = true;
+            this.items.pop();
+        }
+        if (this.items.length == 0) {
+            this.items.push(new PanelItem(this.view, {
+                from: -1, to: -1,
+                severity: "info",
+                message: this.view.state.phrase("No diagnostics")
+            }));
+            needsSync = true;
+        }
+        if (newSelectedItem) {
+            this.list.setAttribute("aria-activedescendant", newSelectedItem.id);
+            this.view.requestMeasure({
+                key: this,
+                read: () => ({ sel: newSelectedItem.dom.getBoundingClientRect(), panel: this.list.getBoundingClientRect() }),
+                write: ({ sel, panel }) => {
+                    let scaleY = panel.height / this.list.offsetHeight;
+                    if (sel.top < panel.top)
+                        this.list.scrollTop -= (panel.top - sel.top) / scaleY;
+                    else if (sel.bottom > panel.bottom)
+                        this.list.scrollTop += (sel.bottom - panel.bottom) / scaleY;
+                }
+            });
+        }
+        else if (this.selectedIndex < 0) {
+            this.list.removeAttribute("aria-activedescendant");
+        }
+        if (needsSync)
+            this.sync();
+    }
+    sync() {
+        let domPos = this.list.firstChild;
+        function rm() {
+            let prev = domPos;
+            domPos = prev.nextSibling;
+            prev.remove();
+        }
+        for (let item of this.items) {
+            if (item.dom.parentNode == this.list) {
+                while (domPos != item.dom)
+                    rm();
+                domPos = item.dom.nextSibling;
+            }
+            else {
+                this.list.insertBefore(item.dom, domPos);
+            }
+        }
+        while (domPos)
+            rm();
+    }
+    moveSelection(selectedIndex) {
+        if (this.selectedIndex < 0)
+            return;
+        let field = this.view.state.field(lintState);
+        let selection = findDiagnostic(field.diagnostics, this.items[selectedIndex].diagnostic);
+        if (!selection)
+            return;
+        this.view.dispatch({
+            selection: { anchor: selection.from, head: selection.to },
+            scrollIntoView: true,
+            effects: movePanelSelection.of(selection)
+        });
+    }
+    static open(view) { return new LintPanel(view); }
+}
+function svg(content, attrs = `viewBox="0 0 40 40"`) {
+    return `url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" ${attrs}>${encodeURIComponent(content)}</svg>')`;
+}
+function underline(color) {
+    return svg(`<path d="m0 2.5 l2 -1.5 l1 0 l2 1.5 l1 0" stroke="${color}" fill="none" stroke-width=".7"/>`, `width="6" height="3"`);
+}
+const baseTheme$2 = /*@__PURE__*/EditorView.baseTheme({
+    ".cm-diagnostic": {
+        padding: "3px 6px 3px 8px",
+        marginLeft: "-1px",
+        display: "block",
+        whiteSpace: "pre-wrap"
+    },
+    ".cm-diagnostic-error": { borderLeft: "5px solid #d11" },
+    ".cm-diagnostic-warning": { borderLeft: "5px solid orange" },
+    ".cm-diagnostic-info": { borderLeft: "5px solid #999" },
+    ".cm-diagnostic-hint": { borderLeft: "5px solid #66d" },
+    ".cm-diagnosticAction": {
+        font: "inherit",
+        border: "none",
+        padding: "2px 4px",
+        backgroundColor: "#444",
+        color: "white",
+        borderRadius: "3px",
+        marginLeft: "8px",
+        cursor: "pointer"
+    },
+    ".cm-diagnosticSource": {
+        fontSize: "70%",
+        opacity: .7
+    },
+    ".cm-lintRange": {
+        backgroundPosition: "left bottom",
+        backgroundRepeat: "repeat-x",
+        paddingBottom: "0.7px",
+    },
+    ".cm-lintRange-error": { backgroundImage: /*@__PURE__*/underline("#d11") },
+    ".cm-lintRange-warning": { backgroundImage: /*@__PURE__*/underline("orange") },
+    ".cm-lintRange-info": { backgroundImage: /*@__PURE__*/underline("#999") },
+    ".cm-lintRange-hint": { backgroundImage: /*@__PURE__*/underline("#66d") },
+    ".cm-lintRange-active": { backgroundColor: "#ffdd9980" },
+    ".cm-tooltip-lint": {
+        padding: 0,
+        margin: 0
+    },
+    ".cm-lintPoint": {
+        position: "relative",
+        "&:after": {
+            content: '""',
+            position: "absolute",
+            bottom: 0,
+            left: "-2px",
+            borderLeft: "3px solid transparent",
+            borderRight: "3px solid transparent",
+            borderBottom: "4px solid #d11"
+        }
+    },
+    ".cm-lintPoint-warning": {
+        "&:after": { borderBottomColor: "orange" }
+    },
+    ".cm-lintPoint-info": {
+        "&:after": { borderBottomColor: "#999" }
+    },
+    ".cm-lintPoint-hint": {
+        "&:after": { borderBottomColor: "#66d" }
+    },
+    ".cm-panel.cm-panel-lint": {
+        position: "relative",
+        "& ul": {
+            maxHeight: "100px",
+            overflowY: "auto",
+            "& [aria-selected]": {
+                backgroundColor: "#ddd",
+                "& u": { textDecoration: "underline" }
+            },
+            "&:focus [aria-selected]": {
+                background_fallback: "#bdf",
+                backgroundColor: "Highlight",
+                color_fallback: "white",
+                color: "HighlightText"
+            },
+            "& u": { textDecoration: "none" },
+            padding: 0,
+            margin: 0
+        },
+        "& [name=close]": {
+            position: "absolute",
+            top: "0",
+            right: "2px",
+            background: "inherit",
+            border: "none",
+            font: "inherit",
+            padding: 0,
+            margin: 0
+        }
+    }
+});
+function severityWeight(sev) {
+    return sev == "error" ? 4 : sev == "warning" ? 3 : sev == "info" ? 2 : 1;
+}
+function maxSeverity(diagnostics) {
+    let sev = "hint", weight = 1;
+    for (let d of diagnostics) {
+        let w = severityWeight(d.severity);
+        if (w > weight) {
+            weight = w;
+            sev = d.severity;
+        }
+    }
+    return sev;
+}
+class LintGutterMarker extends GutterMarker {
+    constructor(diagnostics) {
+        super();
+        this.diagnostics = diagnostics;
+        this.severity = maxSeverity(diagnostics);
+    }
+    toDOM(view) {
+        let elt = document.createElement("div");
+        elt.className = "cm-lint-marker cm-lint-marker-" + this.severity;
+        let diagnostics = this.diagnostics;
+        let diagnosticsFilter = view.state.facet(lintGutterConfig).tooltipFilter;
+        if (diagnosticsFilter)
+            diagnostics = diagnosticsFilter(diagnostics, view.state);
+        if (diagnostics.length)
+            elt.onmouseover = () => gutterMarkerMouseOver(view, elt, diagnostics);
+        return elt;
+    }
+}
+function trackHoverOn(view, marker) {
+    let mousemove = (event) => {
+        let rect = marker.getBoundingClientRect();
+        if (event.clientX > rect.left - 10 /* Hover.Margin */ && event.clientX < rect.right + 10 /* Hover.Margin */ &&
+            event.clientY > rect.top - 10 /* Hover.Margin */ && event.clientY < rect.bottom + 10 /* Hover.Margin */)
+            return;
+        for (let target = event.target; target; target = target.parentNode) {
+            if (target.nodeType == 1 && target.classList.contains("cm-tooltip-lint"))
+                return;
+        }
+        window.removeEventListener("mousemove", mousemove);
+        if (view.state.field(lintGutterTooltip))
+            view.dispatch({ effects: setLintGutterTooltip.of(null) });
+    };
+    window.addEventListener("mousemove", mousemove);
+}
+function gutterMarkerMouseOver(view, marker, diagnostics) {
+    function hovered() {
+        let line = view.elementAtHeight(marker.getBoundingClientRect().top + 5 - view.documentTop);
+        const linePos = view.coordsAtPos(line.from);
+        if (linePos) {
+            view.dispatch({ effects: setLintGutterTooltip.of({
+                    pos: line.from,
+                    above: false,
+                    clip: false,
+                    create() {
+                        return {
+                            dom: diagnosticsTooltip(view, diagnostics),
+                            getCoords: () => marker.getBoundingClientRect()
+                        };
+                    }
+                }) });
+        }
+        marker.onmouseout = marker.onmousemove = null;
+        trackHoverOn(view, marker);
+    }
+    let { hoverTime } = view.state.facet(lintGutterConfig);
+    let hoverTimeout = setTimeout(hovered, hoverTime);
+    marker.onmouseout = () => {
+        clearTimeout(hoverTimeout);
+        marker.onmouseout = marker.onmousemove = null;
+    };
+    marker.onmousemove = () => {
+        clearTimeout(hoverTimeout);
+        hoverTimeout = setTimeout(hovered, hoverTime);
+    };
+}
+function markersForDiagnostics(doc, diagnostics) {
+    let byLine = Object.create(null);
+    for (let diagnostic of diagnostics) {
+        let line = doc.lineAt(diagnostic.from);
+        (byLine[line.from] || (byLine[line.from] = [])).push(diagnostic);
+    }
+    let markers = [];
+    for (let line in byLine) {
+        markers.push(new LintGutterMarker(byLine[line]).range(+line));
+    }
+    return RangeSet.of(markers, true);
+}
+const lintGutterExtension = /*@__PURE__*/gutter({
+    class: "cm-gutter-lint",
+    markers: view => view.state.field(lintGutterMarkers),
+    widgetMarker: (view, widget, block) => {
+        let diagnostics = [];
+        view.state.field(lintGutterMarkers).between(block.from, block.to, (from, to, value) => {
+            if (from > block.from && from < block.to)
+                diagnostics.push(...value.diagnostics);
+        });
+        return diagnostics.length ? new LintGutterMarker(diagnostics) : null;
+    }
+});
+const lintGutterMarkers = /*@__PURE__*/StateField.define({
+    create() {
+        return RangeSet.empty;
+    },
+    update(markers, tr) {
+        markers = markers.map(tr.changes);
+        let diagnosticFilter = tr.state.facet(lintGutterConfig).markerFilter;
+        for (let effect of tr.effects) {
+            if (effect.is(setDiagnosticsEffect)) {
+                let diagnostics = effect.value;
+                if (diagnosticFilter)
+                    diagnostics = diagnosticFilter(diagnostics || [], tr.state);
+                markers = markersForDiagnostics(tr.state.doc, diagnostics.slice(0));
+            }
+        }
+        return markers;
+    }
+});
+const setLintGutterTooltip = /*@__PURE__*/StateEffect.define();
+const lintGutterTooltip = /*@__PURE__*/StateField.define({
+    create() { return null; },
+    update(tooltip, tr) {
+        if (tooltip && tr.docChanged)
+            tooltip = hideTooltip(tr, tooltip) ? null : Object.assign(Object.assign({}, tooltip), { pos: tr.changes.mapPos(tooltip.pos) });
+        return tr.effects.reduce((t, e) => e.is(setLintGutterTooltip) ? e.value : t, tooltip);
+    },
+    provide: field => showTooltip.from(field)
+});
+const lintGutterTheme = /*@__PURE__*/EditorView.baseTheme({
+    ".cm-gutter-lint": {
+        width: "1.4em",
+        "& .cm-gutterElement": {
+            padding: ".2em"
+        }
+    },
+    ".cm-lint-marker": {
+        width: "1em",
+        height: "1em"
+    },
+    ".cm-lint-marker-info": {
+        content: /*@__PURE__*/svg(`<path fill="#aaf" stroke="#77e" stroke-width="6" stroke-linejoin="round" d="M5 5L35 5L35 35L5 35Z"/>`)
+    },
+    ".cm-lint-marker-warning": {
+        content: /*@__PURE__*/svg(`<path fill="#fe8" stroke="#fd7" stroke-width="6" stroke-linejoin="round" d="M20 6L37 35L3 35Z"/>`),
+    },
+    ".cm-lint-marker-error": {
+        content: /*@__PURE__*/svg(`<circle cx="20" cy="20" r="15" fill="#f87" stroke="#f43" stroke-width="6"/>`)
+    },
+});
+const lintExtensions = [
+    lintState,
+    /*@__PURE__*/EditorView.decorations.compute([lintState], state => {
+        let { selected, panel } = state.field(lintState);
+        return !selected || !panel || selected.from == selected.to ? Decoration.none : Decoration.set([
+            activeMark.range(selected.from, selected.to)
+        ]);
+    }),
+    /*@__PURE__*/hoverTooltip(lintTooltip, { hideOn: hideTooltip }),
+    baseTheme$2
+];
+const lintGutterConfig = /*@__PURE__*/Facet.define({
+    combine(configs) {
+        return combineConfig(configs, {
+            hoverTime: 300 /* Hover.Time */,
+            markerFilter: null,
+            tooltipFilter: null
+        });
+    }
+});
+/**
+Returns an extension that installs a gutter showing markers for
+each line that has diagnostics, which can be hovered over to see
+the diagnostics.
+*/
+function lintGutter(config = {}) {
+    return [lintGutterConfig.of(config), lintGutterMarkers, lintGutterExtension, lintGutterTheme, lintGutterTooltip];
+}
+/**
+Iterate over the marked diagnostics for the given editor state,
+calling `f` for each of them. Note that, if the document changed
+since the diagnostics were created, the `Diagnostic` object will
+hold the original outdated position, whereas the `to` and `from`
+arguments hold the diagnostic's current position.
+*/
+function forEachDiagnostic(state, f) {
+    let lState = state.field(lintState, false);
+    if (lState && lState.diagnostics.size) {
+        let pending = [], pendingStart = [], lastEnd = -1;
+        for (let iter = RangeSet.iter([lState.diagnostics]);; iter.next()) {
+            for (let i = 0; i < pending.length; i++)
+                if (!iter.value || iter.value.spec.diagnostics.indexOf(pending[i]) < 0) {
+                    f(pending[i], pendingStart[i], lastEnd);
+                    pending.splice(i, 1);
+                    pendingStart.splice(i--, 1);
+                }
+            if (!iter.value)
+                break;
+            for (let d of iter.value.spec.diagnostics)
+                if (pending.indexOf(d) < 0) {
+                    pending.push(d);
+                    pendingStart.push(iter.from);
+                }
+            lastEnd = iter.to;
+        }
+    }
 }
 
 const basicNormalize = typeof String.prototype.normalize == "function"
@@ -21475,19 +25481,20 @@ class SearchCursor {
             let str = fromCodePoint(next), start = this.bufferStart + this.bufferPos;
             this.bufferPos += codePointSize(next);
             let norm = this.normalize(str);
-            for (let i = 0, pos = start;; i++) {
-                let code = norm.charCodeAt(i);
-                let match = this.match(code, pos, this.bufferPos + this.bufferStart);
-                if (i == norm.length - 1) {
-                    if (match) {
-                        this.value = match;
-                        return this;
+            if (norm.length)
+                for (let i = 0, pos = start;; i++) {
+                    let code = norm.charCodeAt(i);
+                    let match = this.match(code, pos, this.bufferPos + this.bufferStart);
+                    if (i == norm.length - 1) {
+                        if (match) {
+                            this.value = match;
+                            return this;
+                        }
+                        break;
                     }
-                    break;
+                    if (pos == start && i < str.length && str.charCodeAt(i) == code)
+                        pos++;
                 }
-                if (pos == start && i < str.length && str.charCodeAt(i) == code)
-                    pos++;
-            }
         }
     }
     match(code, pos, end) {
@@ -21721,7 +25728,15 @@ function createLineDialog(view) {
             event.preventDefault();
             go();
         }
-    }, crelt("label", view.state.phrase("Go to line"), ": ", input), " ", crelt("button", { class: "cm-button", type: "submit" }, view.state.phrase("go")));
+    }, crelt("label", view.state.phrase("Go to line"), ": ", input), " ", crelt("button", { class: "cm-button", type: "submit" }, view.state.phrase("go")), crelt("button", {
+        name: "close",
+        onclick: () => {
+            view.dispatch({ effects: dialogEffect.of(false) });
+            view.focus();
+        },
+        "aria-label": view.state.phrase("close"),
+        type: "button"
+    }, ["×"]));
     function go() {
         let match = /^([+-])?(\d+)?(:\d+)?(%)?$/.exec(input.value);
         if (!match)
@@ -21785,7 +25800,17 @@ const gotoLine = view => {
 const baseTheme$1 = /*@__PURE__*/EditorView.baseTheme({
     ".cm-panel.cm-gotoLine": {
         padding: "2px 6px 4px",
-        "& label": { fontSize: "80%" }
+        position: "relative",
+        "& label": { fontSize: "80%" },
+        "& [name=close]": {
+            position: "absolute",
+            top: "0", bottom: "0",
+            right: "4px",
+            backgroundColor: "inherit",
+            border: "none",
+            font: "inherit",
+            padding: "0"
+        }
     }
 });
 
@@ -22044,9 +26069,11 @@ class StringQuery extends QueryType {
     }
     nextMatch(state, curFrom, curTo) {
         let cursor = stringCursor(this.spec, state, curTo, state.doc.length).nextOverlapping();
-        if (cursor.done)
-            cursor = stringCursor(this.spec, state, 0, curFrom).nextOverlapping();
-        return cursor.done ? null : cursor.value;
+        if (cursor.done) {
+            let end = Math.min(state.doc.length, curFrom + this.spec.unquoted.length);
+            cursor = stringCursor(this.spec, state, 0, end).nextOverlapping();
+        }
+        return cursor.done || cursor.value.from == curFrom && cursor.value.to == curTo ? null : cursor.value;
     }
     // Searching in reverse is, rather than implementing an inverted search
     // cursor, done by scanning chunk after chunk forward.
@@ -22064,8 +26091,10 @@ class StringQuery extends QueryType {
         }
     }
     prevMatch(state, curFrom, curTo) {
-        return this.prevMatchInRange(state, 0, curFrom) ||
-            this.prevMatchInRange(state, curTo, state.doc.length);
+        let found = this.prevMatchInRange(state, 0, curFrom);
+        if (!found)
+            found = this.prevMatchInRange(state, Math.max(0, curTo - this.spec.unquoted.length), state.doc.length);
+        return found && (found.from != curFrom || found.to != curTo) ? found : null;
     }
     getReplacement(_result) { return this.spec.unquote(this.spec.replace); }
     matchAll(state, limit) {
@@ -22126,10 +26155,18 @@ class RegExpQuery extends QueryType {
             this.prevMatchInRange(state, curTo, state.doc.length);
     }
     getReplacement(result) {
-        return this.spec.unquote(this.spec.replace).replace(/\$([$&\d+])/g, (m, i) => i == "$" ? "$"
-            : i == "&" ? result.match[0]
-                : i != "0" && +i < result.match.length ? result.match[i]
-                    : m);
+        return this.spec.unquote(this.spec.replace).replace(/\$([$&]|\d+)/g, (m, i) => {
+            if (i == "&")
+                return result.match[0];
+            if (i == "$")
+                return "$";
+            for (let l = i.length; l > 0; l--) {
+                let n = +i.slice(0, l);
+                if (n > 0 && n < result.match.length)
+                    return result.match[n] + i.slice(l);
+            }
+            return m;
+        });
     }
     matchAll(state, limit) {
         let cursor = regexpCursor(this.spec, state, 0, state.doc.length), ranges = [];
@@ -22309,9 +26346,10 @@ const replaceNext = /*@__PURE__*/searchCommand((view, { query }) => {
     let { state } = view, { from, to } = state.selection.main;
     if (state.readOnly)
         return false;
-    let next = query.nextMatch(state, from, from);
-    if (!next)
+    let match = query.nextMatch(state, from, from);
+    if (!match)
         return false;
+    let next = match;
     let changes = [], selection, replacement;
     let effects = [];
     if (next.from == from && next.to == to) {
@@ -22321,7 +26359,7 @@ const replaceNext = /*@__PURE__*/searchCommand((view, { query }) => {
         effects.push(EditorView.announce.of(state.phrase("replaced match on line $", state.doc.lineAt(from).number) + "."));
     }
     if (next) {
-        let off = changes.length == 0 || changes[0].from >= next.to ? 0 : next.to - next.from - replacement.length;
+        let off = changes.length == 0 || changes[0].from >= match.to ? 0 : match.to - match.from - replacement.length;
         selection = EditorSelection.single(next.from - off, next.to - off);
         effects.push(announceMatch(view, next));
         effects.push(state.facet(searchConfigFacet).scrollToMatch(selection.main, view));
@@ -22612,6 +26650,135 @@ const searchExtensions = [
     baseTheme
 ];
 
+// Using https://github.com/one-dark/vscode-one-dark-theme/ as reference for the colors
+const chalky = "#e5c07b", coral = "#e06c75", cyan = "#56b6c2", invalid = "#ffffff", ivory = "#abb2bf", stone = "#7d8799", // Brightened compared to original to increase contrast
+malibu = "#61afef", sage = "#98c379", whiskey = "#d19a66", violet = "#c678dd", darkBackground = "#21252b", highlightBackground = "#2c313a", background = "#282c34", tooltipBackground = "#353a42", selection = "#3E4451", cursor = "#528bff";
+/**
+The colors used in the theme, as CSS color strings.
+*/
+const color = {
+    chalky,
+    coral,
+    cyan,
+    invalid,
+    ivory,
+    stone,
+    malibu,
+    sage,
+    whiskey,
+    violet,
+    darkBackground,
+    highlightBackground,
+    background,
+    tooltipBackground,
+    selection,
+    cursor
+};
+/**
+The editor theme styles for One Dark.
+*/
+const oneDarkTheme = /*@__PURE__*/EditorView.theme({
+    "&": {
+        color: ivory,
+        backgroundColor: background
+    },
+    ".cm-content": {
+        caretColor: cursor
+    },
+    ".cm-cursor, .cm-dropCursor": { borderLeftColor: cursor },
+    "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": { backgroundColor: selection },
+    ".cm-panels": { backgroundColor: darkBackground, color: ivory },
+    ".cm-panels.cm-panels-top": { borderBottom: "2px solid black" },
+    ".cm-panels.cm-panels-bottom": { borderTop: "2px solid black" },
+    ".cm-searchMatch": {
+        backgroundColor: "#72a1ff59",
+        outline: "1px solid #457dff"
+    },
+    ".cm-searchMatch.cm-searchMatch-selected": {
+        backgroundColor: "#6199ff2f"
+    },
+    ".cm-activeLine": { backgroundColor: "#6699ff0b" },
+    ".cm-selectionMatch": { backgroundColor: "#aafe661a" },
+    "&.cm-focused .cm-matchingBracket, &.cm-focused .cm-nonmatchingBracket": {
+        backgroundColor: "#bad0f847"
+    },
+    ".cm-gutters": {
+        backgroundColor: background,
+        color: stone,
+        border: "none"
+    },
+    ".cm-activeLineGutter": {
+        backgroundColor: highlightBackground
+    },
+    ".cm-foldPlaceholder": {
+        backgroundColor: "transparent",
+        border: "none",
+        color: "#ddd"
+    },
+    ".cm-tooltip": {
+        border: "none",
+        backgroundColor: tooltipBackground
+    },
+    ".cm-tooltip .cm-tooltip-arrow:before": {
+        borderTopColor: "transparent",
+        borderBottomColor: "transparent"
+    },
+    ".cm-tooltip .cm-tooltip-arrow:after": {
+        borderTopColor: tooltipBackground,
+        borderBottomColor: tooltipBackground
+    },
+    ".cm-tooltip-autocomplete": {
+        "& > ul > li[aria-selected]": {
+            backgroundColor: highlightBackground,
+            color: ivory
+        }
+    }
+}, { dark: true });
+/**
+The highlighting style for code in the One Dark theme.
+*/
+const oneDarkHighlightStyle = /*@__PURE__*/HighlightStyle.define([
+    { tag: tags.keyword,
+        color: violet },
+    { tag: [tags.name, tags.deleted, tags.character, tags.propertyName, tags.macroName],
+        color: coral },
+    { tag: [/*@__PURE__*/tags.function(tags.variableName), tags.labelName],
+        color: malibu },
+    { tag: [tags.color, /*@__PURE__*/tags.constant(tags.name), /*@__PURE__*/tags.standard(tags.name)],
+        color: whiskey },
+    { tag: [/*@__PURE__*/tags.definition(tags.name), tags.separator],
+        color: ivory },
+    { tag: [tags.typeName, tags.className, tags.number, tags.changed, tags.annotation, tags.modifier, tags.self, tags.namespace],
+        color: chalky },
+    { tag: [tags.operator, tags.operatorKeyword, tags.url, tags.escape, tags.regexp, tags.link, /*@__PURE__*/tags.special(tags.string)],
+        color: cyan },
+    { tag: [tags.meta, tags.comment],
+        color: stone },
+    { tag: tags.strong,
+        fontWeight: "bold" },
+    { tag: tags.emphasis,
+        fontStyle: "italic" },
+    { tag: tags.strikethrough,
+        textDecoration: "line-through" },
+    { tag: tags.link,
+        color: stone,
+        textDecoration: "underline" },
+    { tag: tags.heading,
+        fontWeight: "bold",
+        color: coral },
+    { tag: [tags.atom, tags.bool, /*@__PURE__*/tags.special(tags.variableName)],
+        color: whiskey },
+    { tag: [tags.processingInstruction, tags.string, tags.inserted],
+        color: sage },
+    { tag: tags.invalid,
+        color: invalid },
+]);
+/**
+Extension to enable the One Dark theme (both the editor theme and
+the highlight style).
+*/
+const oneDark = [oneDarkTheme, /*@__PURE__*/syntaxHighlighting(oneDarkHighlightStyle)];
+
 exports.Annotation = Annotation;
 exports.AnnotationType = AnnotationType;
 exports.BidiSpan = BidiSpan;
@@ -22619,6 +26786,7 @@ exports.BlockInfo = BlockInfo;
 exports.ChangeDesc = ChangeDesc;
 exports.ChangeSet = ChangeSet;
 exports.Compartment = Compartment;
+exports.CompletionContext = CompletionContext;
 exports.Decoration = Decoration;
 exports.DocInput = DocInput;
 exports.EditorSelection = EditorSelection;
@@ -22658,30 +26826,47 @@ exports.ViewPlugin = ViewPlugin;
 exports.ViewUpdate = ViewUpdate;
 exports.WidgetType = WidgetType;
 exports.__test = __test;
+exports.acceptCompletion = acceptCompletion;
+exports.autocompletion = autocompletion;
+exports.bidiIsolates = bidiIsolates;
 exports.blockComment = blockComment;
 exports.blockUncomment = blockUncomment;
 exports.bracketMatching = bracketMatching;
 exports.bracketMatchingHandle = bracketMatchingHandle;
 exports.classHighlighter = classHighlighter;
+exports.clearSnippet = clearSnippet;
+exports.closeBrackets = closeBrackets;
+exports.closeBracketsKeymap = closeBracketsKeymap;
+exports.closeCompletion = closeCompletion;
 exports.closeHoverTooltips = closeHoverTooltips;
+exports.closeLintPanel = closeLintPanel;
 exports.closeSearchPanel = closeSearchPanel;
 exports.codeFolding = codeFolding;
 exports.codePointAt = codePointAt;
 exports.codePointSize = codePointSize;
+exports.color = color;
 exports.combineConfig = combineConfig;
+exports.completeAnyWord = completeAnyWord;
+exports.completeFromList = completeFromList;
+exports.completionKeymap = completionKeymap;
+exports.completionStatus = completionStatus;
 exports.continuedIndent = continuedIndent;
 exports.copyLineDown = copyLineDown;
 exports.copyLineUp = copyLineUp;
 exports.countColumn = countColumn;
 exports.crosshairCursor = crosshairCursor;
+exports.currentCompletions = currentCompletions;
 exports.cursorCharBackward = cursorCharBackward;
+exports.cursorCharBackwardLogical = cursorCharBackwardLogical;
 exports.cursorCharForward = cursorCharForward;
+exports.cursorCharForwardLogical = cursorCharForwardLogical;
 exports.cursorCharLeft = cursorCharLeft;
 exports.cursorCharRight = cursorCharRight;
 exports.cursorDocEnd = cursorDocEnd;
 exports.cursorDocStart = cursorDocStart;
 exports.cursorGroupBackward = cursorGroupBackward;
 exports.cursorGroupForward = cursorGroupForward;
+exports.cursorGroupForwardWin = cursorGroupForwardWin;
 exports.cursorGroupLeft = cursorGroupLeft;
 exports.cursorGroupRight = cursorGroupRight;
 exports.cursorLineBoundaryBackward = cursorLineBoundaryBackward;
@@ -22702,15 +26887,20 @@ exports.cursorSyntaxRight = cursorSyntaxRight;
 exports.defaultHighlightStyle = defaultHighlightStyle;
 exports.defaultKeymap = defaultKeymap;
 exports.defineLanguageFacet = defineLanguageFacet;
+exports.deleteBracketPair = deleteBracketPair;
 exports.deleteCharBackward = deleteCharBackward;
+exports.deleteCharBackwardStrict = deleteCharBackwardStrict;
 exports.deleteCharForward = deleteCharForward;
 exports.deleteGroupBackward = deleteGroupBackward;
 exports.deleteGroupForward = deleteGroupForward;
 exports.deleteLine = deleteLine;
+exports.deleteLineBoundaryBackward = deleteLineBoundaryBackward;
+exports.deleteLineBoundaryForward = deleteLineBoundaryForward;
 exports.deleteToLineEnd = deleteToLineEnd;
 exports.deleteToLineStart = deleteToLineStart;
 exports.deleteTrailingWhitespace = deleteTrailingWhitespace;
 exports.delimitedIndent = delimitedIndent;
+exports.diagnosticCount = diagnosticCount;
 exports.drawSelection = drawSelection;
 exports.dropCursor = dropCursor;
 exports.emacsStyleKeymap = emacsStyleKeymap;
@@ -22731,6 +26921,8 @@ exports.foldService = foldService;
 exports.foldState = foldState;
 exports.foldable = foldable;
 exports.foldedRanges = foldedRanges;
+exports.forEachDiagnostic = forEachDiagnostic;
+exports.forceLinting = forceLinting;
 exports.forceParsing = forceParsing;
 exports.fromCodePoint = fromCodePoint;
 exports.getDrawSelectionConfig = getDrawSelectionConfig;
@@ -22743,8 +26935,11 @@ exports.getTooltip = getTooltip;
 exports.gotoLine = gotoLine;
 exports.gutter = gutter;
 exports.gutterLineClass = gutterLineClass;
+exports.gutterWidgetClass = gutterWidgetClass;
 exports.gutters = gutters;
 exports.hasHoverTooltips = hasHoverTooltips;
+exports.hasNextSnippetField = hasNextSnippetField;
+exports.hasPrevSnippetField = hasPrevSnippetField;
 exports.highlightActiveLine = highlightActiveLine;
 exports.highlightActiveLineGutter = highlightActiveLineGutter;
 exports.highlightCode = highlightCode;
@@ -22758,6 +26953,8 @@ exports.history = history;
 exports.historyField = historyField;
 exports.historyKeymap = historyKeymap;
 exports.hoverTooltip = hoverTooltip;
+exports.ifIn = ifIn;
+exports.ifNotIn = ifNotIn;
 exports.indentLess = indentLess;
 exports.indentMore = indentMore;
 exports.indentNodeProp = indentNodeProp;
@@ -22769,8 +26966,11 @@ exports.indentString = indentString;
 exports.indentUnit = indentUnit;
 exports.indentWithTab = indentWithTab;
 exports.insertBlankLine = insertBlankLine;
+exports.insertBracket = insertBracket;
+exports.insertCompletionText = insertCompletionText;
 exports.insertNewline = insertNewline;
 exports.insertNewlineAndIndent = insertNewlineAndIndent;
+exports.insertNewlineKeepIndent = insertNewlineKeepIndent;
 exports.insertTab = insertTab;
 exports.invertedEffects = invertedEffects;
 exports.isolateHistory = isolateHistory;
@@ -22780,15 +26980,29 @@ exports.languageDataProp = languageDataProp;
 exports.layer = layer;
 exports.lineComment = lineComment;
 exports.lineNumberMarkers = lineNumberMarkers;
+exports.lineNumberWidgetMarker = lineNumberWidgetMarker;
 exports.lineNumbers = lineNumbers;
 exports.lineUncomment = lineUncomment;
+exports.lintGutter = lintGutter;
+exports.lintKeymap = lintKeymap;
+exports.linter = linter;
 exports.logException = logException;
 exports.matchBrackets = matchBrackets;
+exports.moveCompletionSelection = moveCompletionSelection;
 exports.moveLineDown = moveLineDown;
 exports.moveLineUp = moveLineUp;
+exports.nextDiagnostic = nextDiagnostic;
+exports.nextSnippetField = nextSnippetField;
+exports.oneDark = oneDark;
+exports.oneDarkHighlightStyle = oneDarkHighlightStyle;
+exports.oneDarkTheme = oneDarkTheme;
+exports.openLintPanel = openLintPanel;
 exports.openSearchPanel = openSearchPanel;
 exports.panels = panels;
+exports.pickedCompletion = pickedCompletion;
 exports.placeholder = placeholder;
+exports.prevSnippetField = prevSnippetField;
+exports.previousDiagnostic = previousDiagnostic;
 exports.rectangularSelection = rectangularSelection;
 exports.redo = redo;
 exports.redoDepth = redoDepth;
@@ -22803,13 +27017,16 @@ exports.searchKeymap = searchKeymap;
 exports.searchPanelOpen = searchPanelOpen;
 exports.selectAll = selectAll;
 exports.selectCharBackward = selectCharBackward;
+exports.selectCharBackwardLogical = selectCharBackwardLogical;
 exports.selectCharForward = selectCharForward;
+exports.selectCharForwardLogical = selectCharForwardLogical;
 exports.selectCharLeft = selectCharLeft;
 exports.selectCharRight = selectCharRight;
 exports.selectDocEnd = selectDocEnd;
 exports.selectDocStart = selectDocStart;
 exports.selectGroupBackward = selectGroupBackward;
 exports.selectGroupForward = selectGroupForward;
+exports.selectGroupForwardWin = selectGroupForwardWin;
 exports.selectGroupLeft = selectGroupLeft;
 exports.selectGroupRight = selectGroupRight;
 exports.selectLine = selectLine;
@@ -22832,12 +27049,21 @@ exports.selectSubwordBackward = selectSubwordBackward;
 exports.selectSubwordForward = selectSubwordForward;
 exports.selectSyntaxLeft = selectSyntaxLeft;
 exports.selectSyntaxRight = selectSyntaxRight;
+exports.selectedCompletion = selectedCompletion;
+exports.selectedCompletionIndex = selectedCompletionIndex;
+exports.setDiagnostics = setDiagnostics;
+exports.setDiagnosticsEffect = setDiagnosticsEffect;
 exports.setSearchQuery = setSearchQuery;
+exports.setSelectedCompletion = setSelectedCompletion;
 exports.showPanel = showPanel;
 exports.showTooltip = showTooltip;
 exports.simplifySelection = simplifySelection;
+exports.snippet = snippet;
+exports.snippetCompletion = snippetCompletion;
+exports.snippetKeymap = snippetKeymap;
 exports.splitLine = splitLine;
 exports.standardKeymap = standardKeymap;
+exports.startCompletion = startCompletion;
 exports.styleTags = styleTags;
 exports.sublanguageProp = sublanguageProp;
 exports.syntaxHighlighting = syntaxHighlighting;
@@ -22846,11 +27072,13 @@ exports.syntaxTree = syntaxTree;
 exports.syntaxTreeAvailable = syntaxTreeAvailable;
 exports.tagHighlighter = tagHighlighter;
 exports.tags = tags;
+exports.temporarilySetTabFocusMode = temporarilySetTabFocusMode;
 exports.toggleBlockComment = toggleBlockComment;
 exports.toggleBlockCommentByLine = toggleBlockCommentByLine;
 exports.toggleComment = toggleComment;
 exports.toggleFold = toggleFold;
 exports.toggleLineComment = toggleLineComment;
+exports.toggleTabFocusMode = toggleTabFocusMode;
 exports.tooltips = tooltips;
 exports.transposeChars = transposeChars;
 exports.undo = undo;

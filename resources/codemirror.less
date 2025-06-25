@@ -1,38 +1,23 @@
 @import 'mediawiki.skin.variables.less';
+@import './codemirror.mixins.less';
 
 .cm-editor {
 	border: @border-width-base @border-style-base @border-color-subtle;
 
 	.cm-selectionBackground {
 		background: #d9d9d9;
+		.darkmode( background, #222 );
+	}
 
-		@media screen {
-			html.skin-theme-clientpref-night & {
-				background: #222;
-			}
-		}
-
-		@media screen and ( prefers-color-scheme: dark ) {
-			html.skin-theme-clientpref-os & {
-				background: #222;
-			}
-		}
+	// For the highlightSelectionMatches extension, only used in non-wikitext.
+	.cm-selectionMatch {
+		background: #f6ebeb; // maroon50
+		// FIXME: add dark mode style
 	}
 
 	&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {
 		background: #d7d4f0;
-
-		@media screen {
-			html.skin-theme-clientpref-night & {
-				background: #233;
-			}
-		}
-
-		@media screen and ( prefers-color-scheme: dark ) {
-			html.skin-theme-clientpref-os & {
-				background: #233;
-			}
-		}
+		.darkmode( background, #233 );
 	}
 }
 
@@ -55,6 +40,11 @@
 	cursor: @cursor-base--hover;
 	line-height: 1.2;
 	padding: 0 1px;
+	opacity: 0.6;
+
+	&:hover {
+		opacity: 1;
+	}
 }
 
 .cm-editor .cm-foldPlaceholder {
@@ -71,6 +61,23 @@
 
 .ext-codemirror-wrapper {
 	height: 100%;
+
+	textarea {
+		/* stylelint-disable-next-line declaration-no-important */
+		display: none !important;
+	}
+
+	&--hidden {
+		.cm-editor {
+			/* stylelint-disable-next-line declaration-no-important */
+			display: none !important;
+		}
+
+		textarea {
+			/* stylelint-disable-next-line declaration-no-important */
+			display: initial !important;
+		}
+	}
 }
 
 // The various .cm-editor prefixed styles are required to have higher
@@ -82,13 +89,23 @@
 }
 
 .cm-editor .cm-cursor {
+	// CodeMirror defines this in JavaScript and flipping the property
+	// causes mismatch thus a noflip is needed.
+	/* @noflip */
 	border-left-color: @color-emphasized;
+}
+
+.cm-editor .cm-activeLine {
+	background-color: rgba( 204, 238, 255, 0.27 );
+	.darkmode( background-color, rgba( 71, 71, 124, 0.2 ) );
 }
 
 .cm-editor .cm-tooltip {
 	background-color: @background-color-neutral-subtle;
 	border-color: @border-color-base;
 }
+
+// Panels
 
 .cm-editor .cm-panels {
 	background-color: @background-color-neutral-subtle;
@@ -105,12 +122,26 @@
 
 	.cm-mw-panel {
 		border-bottom: @border-style-base @border-width-base @border-color-subtle;
+		font-family: @font-family-base;
 		padding: @spacing-50;
+		position: relative;
+	}
+
+	.cm-mw-panel--help {
+		font-weight: @font-weight-normal;
+	}
+
+	.cm-mw-panel--fieldset legend {
+		margin-bottom: @spacing-50;
 	}
 
 	.cm-mw-panel--text-input {
 		flex-basis: 0;
 		flex-grow: 1;
+	}
+
+	.cm-mw-panel--checkbox {
+		margin-bottom: @spacing-25;
 	}
 
 	.cm-mw-panel--row {
@@ -136,6 +167,47 @@
 			background-color: @color-inverted;
 		}
 	}
+
+	.cm-mw-panel-close {
+		position: absolute;
+		right: @spacing-50;
+		top: @spacing-50;
+	}
+}
+
+// Find and replace
+
+.cm-editor .cm-panels .cm-mw-panel--search-panel {
+	container-type: inline-size;
+
+	.cm-mw-panel--text-input {
+		min-width: auto;
+	}
+
+	// Responsive design (T386777)
+	@container ( max-width: 400px ) {
+		// NOTE: We can't use & here yet, see https://github.com/wikimedia/less.php/issues/91
+		.cm-editor .cm-panels .cm-mw-panel--row {
+			flex-wrap: wrap;
+			row-gap: @spacing-50;
+
+			.cm-mw-panel--text-input {
+				flex-basis: 100%;
+			}
+
+			.cm-mw-panel--button {
+				flex-grow: 1;
+			}
+		}
+	}
+}
+
+.cm-mw-find-results {
+	color: @color-placeholder;
+	position: absolute;
+	right: 9px;
+	top: 50%;
+	transform: translateY( -50% );
 }
 
 .cm-mw-icon--match-case {
@@ -161,4 +233,53 @@
 .cm-mw-icon--next {
 	background-color: @color-base;
 	.cdx-mixin-css-icon( @cdx-icon-next, @color-base, @size-icon-medium, true );
+}
+
+.cm-mw-icon--close {
+	background-color: @color-base;
+	.cdx-mixin-css-icon( @cdx-icon-close, @color-base, @size-icon-medium, true );
+}
+
+.cm-mw-panel--status-worker,
+.cm-mw-panel--status-message,
+.cm-mw-panel--status-line {
+	padding: 0 0.3em;
+	display: table-cell;
+}
+
+.cm-mw-panel--status-worker {
+	user-select: none;
+	cursor: pointer;
+}
+
+.cm-mw-panel--status-worker > * {
+	display: table-cell;
+	white-space: nowrap;
+	padding-right: 8px;
+}
+
+.cm-mw-panel--status-worker > * > div {
+	display: inline-block;
+	vertical-align: middle;
+}
+
+.cm-mw-panel--status-worker > * > div:first-child {
+	margin-right: 4px;
+	height: 1em;
+}
+
+.cm-mw-panel--status-message {
+	border-left: @border-subtle;
+	border-right: @border-subtle;
+	width: 100%;
+}
+
+.cm-mw-panel--status-message .cm-diagnosticAction {
+	padding-top: 0;
+	padding-bottom: 0;
+}
+
+.cm-mw-panel--status-line {
+	text-align: right;
+	white-space: nowrap;
 }

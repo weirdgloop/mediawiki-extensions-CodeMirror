@@ -6,6 +6,7 @@
 			"Kokage si",
 			"Marine-Blue",
 			"Shirayuki",
+			"Shulmj",
 			"SkyDaisy9",
 			"Suzukaze-c",
 			"Waki285",
@@ -16,10 +17,12 @@
 	"codemirror-toggle-label": "構文の強調",
 	"codemirror-toggle-label-short": "構文",
 	"codemirror-prefs-summary": "この機能の詳細については、[https://www.mediawiki.org/wiki/Special:MyLanguage/Help:Extension:CodeMirror ヘルプページ]を参照してください。",
-	"codemirror-prefs-enable": "ウィキテキストの構文強調表示を有効にする",
-	"codemirror-v6-prefs-colorblind": "カラーブラインドに応じたスキームを使用",
+	"codemirror-prefs-enable": "構文強調表示を有効にする",
+	"codemirror-prefs-title": "構文強調表示の個人設定",
+	"codemirror-prefs-help": "ヘルプ",
 	"codemirror-prefs-colorblind": "ウィキテキストでの編集時にカラーブラインドに応じた配色を使用する",
 	"codemirror-prefs-colorblind-help": "構文強調表示のガジェットを使用している場合、この設定は機能しません。",
+	"codemirror-close": "閉じる",
 	"codemirror-find": "検索",
 	"codemirror-next": "次を検索",
 	"codemirror-previous": "前を検索",
@@ -49,5 +52,7 @@
 	"codemirror-special-char-left-to-right-override": "LTR オーバーライド",
 	"codemirror-special-char-right-to-left-override": "RTL オーバーライド",
 	"prefs-accessibility": "アクセシビリティ",
-	"prefs-syntax-highlighting": "構文の強調"
+	"prefs-syntax-highlighting": "構文の強調",
+	"codemirror-beta-feature-title": "改善された構文ハイライト",
+	"codemirror-beta-feature-description": "コードの折りたたみやオートコンプリートなど、新たな構文ハイライトや編集機能にいち早くアクセスできます。"
 }

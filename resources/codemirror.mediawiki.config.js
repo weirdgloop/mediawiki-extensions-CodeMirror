@@ -31,6 +31,20 @@ class CodeMirrorModeMediaWikiConfig {
 	}
 
 	/**
+	 * Register a parser function the argument of which is a page title in CodeMirror.
+	 *
+	 * @param {number} ns
+	 * @private
+	 * @internal
+	 */
+	addFunction( ns ) {
+		if ( this.tokenTable[ `mw-function-${ ns }` ] ) {
+			return;
+		}
+		this.tokenTable[ `mw-function-${ ns }` ] = Tag.define();
+	}
+
+	/**
 	 * Register a token for the given tag in CodeMirror. The generated CSS class will be of
 	 * the form 'cm-mw-ext-tagname'. This is for internal use to dynamically register tags
 	 * from other MediaWiki extensions.
@@ -76,7 +90,7 @@ class CodeMirrorModeMediaWikiConfig {
 	 * instead of adding them here.
 	 *
 	 * @see https://www.mediawiki.org/wiki/Extension:CodeMirror#Extension_integration
-	 * @return {Object}
+	 * @type {Object}
 	 */
 	get permittedHtmlTags() {
 		return {
@@ -85,7 +99,7 @@ class CodeMirrorModeMediaWikiConfig {
 			h1: true, h2: true, h3: true, h4: true, h5: true, h6: true, cite: true,
 			code: true, em: true, s: true, strike: true, strong: true, tt: true,
 			var: true, div: true, center: true, blockquote: true, q: true, ol: true, ul: true,
-			dl: true, table: true, caption: true, pre: true, ruby: true, rb: true,
+			dl: true, table: true, caption: true, ruby: true, rb: true,
 			rp: true, rt: true, rtc: true, p: true, span: true, abbr: true, dfn: true,
 			kbd: true, samp: true, data: true, time: true, mark: true, br: true,
 			wbr: true, hr: true, li: true, dt: true, dd: true, td: true, th: true,
@@ -96,7 +110,7 @@ class CodeMirrorModeMediaWikiConfig {
 	/**
 	 * HTML tags that are only self-closing.
 	 *
-	 * @return {Object}
+	 * @type {Object}
 	 */
 	get implicitlyClosedHtmlTags() {
 		return {
@@ -119,13 +133,10 @@ class CodeMirrorModeMediaWikiConfig {
 	 * @see https://lezer.codemirror.net/docs/ref/#highlight.tags
 	 * @member CodeMirrorModeMediaWikiConfig
 	 * @type {Object<string>}
-	 * @return {Object<string>}
 	 */
 	get tags() {
 		return Object.assign( {
 			apostrophes: 'character',
-			apostrophesBold: 'strong',
-			apostrophesItalic: 'emphasis',
 			comment: 'comment',
 			doubleUnderscore: 'controlKeyword',
 			extLink: 'url',
@@ -175,7 +186,7 @@ class CodeMirrorModeMediaWikiConfig {
 	 *
 	 * IMPORTANT: There should be a row in defaultTokenTable() for each of these.
 	 *
-	 * @return {Object<string>}
+	 * @type {Object<string>}
 	 * @private
 	 */
 	get customTags() {
@@ -186,20 +197,25 @@ class CodeMirrorModeMediaWikiConfig {
 			extPre: 'mw-ext-pre',
 			extTag: 'mw-exttag',
 			extTagAttribute: 'mw-exttag-attribute',
+			extTagAttributeValue: 'mw-exttag-attribute-value',
 			extTagBracket: 'mw-exttag-bracket',
 			extTagName: 'mw-exttag-name',
+			htmlTagAttributeValue: 'mw-htmltag-attribute-value',
 			freeExtLink: 'mw-free-extlink',
 			freeExtLinkProtocol: 'mw-free-extlink-protocol',
 			htmlEntity: 'mw-html-entity',
+			imageParameter: 'mw-image-parameter',
 			link: 'mw-link',
 			linkPageName: 'mw-link-pagename',
 			nowiki: 'mw-tag-nowiki',
 			pageName: 'mw-pagename',
 			pre: 'mw-tag-pre',
+			redirect: 'mw-redirect',
 			section: 'mw-section',
 			skipFormatting: 'mw-skipformatting',
 			strong: 'mw-strong',
 			tableCaption: 'mw-table-caption',
+			tableDefinitionValue: 'mw-table-definition-value',
 			templateVariableDelimiter: 'mw-templatevariable-delimiter'
 		};
 	}
@@ -212,7 +228,7 @@ class CodeMirrorModeMediaWikiConfig {
 	 *
 	 * @see https://codemirror.net/docs/ref/#language.StreamParser.tokenTable
 	 * @see https://lezer.codemirror.net/docs/ref/#highlight.Tag%5Edefine
-	 * @return {Object<Tag>}
+	 * @type {Object<Tag>}
 	 * @internal
 	 */
 	get defaultTokenTable() {
@@ -223,21 +239,27 @@ class CodeMirrorModeMediaWikiConfig {
 			[ this.tags.extPre ]: Tag.define(),
 			[ this.tags.extTag ]: Tag.define(),
 			[ this.tags.extTagAttribute ]: Tag.define(),
+			[ this.tags.extTagAttributeValue ]: Tag.define(),
 			[ this.tags.extTagBracket ]: Tag.define(),
 			[ this.tags.extTagName ]: Tag.define(),
+			[ this.tags.htmlTagAttributeValue ]: Tag.define(),
 			[ this.tags.freeExtLink ]: Tag.define(),
 			[ this.tags.freeExtLinkProtocol ]: Tag.define(),
 			[ this.tags.htmlEntity ]: Tag.define(),
+			[ this.tags.imageParameter ]: Tag.define(),
 			[ this.tags.link ]: Tag.define(),
 			[ this.tags.linkPageName ]: Tag.define(),
 			[ this.tags.nowiki ]: Tag.define(),
 			[ this.tags.pageName ]: Tag.define(),
 			[ this.tags.pre ]: Tag.define(),
+			[ this.tags.redirect ]: Tag.define(),
 			[ this.tags.section ]: Tag.define(),
 			[ this.tags.skipFormatting ]: Tag.define(),
 			[ this.tags.strong ]: Tag.define(),
 			[ this.tags.tableCaption ]: Tag.define(),
-			[ this.tags.templateVariableDelimiter ]: Tag.define()
+			[ this.tags.tableDefinitionValue ]: Tag.define(),
+			[ this.tags.templateVariableDelimiter ]: Tag.define(),
+			'': Tag.define()
 		};
 	}
 
@@ -255,14 +277,6 @@ class CodeMirrorModeMediaWikiConfig {
 			{
 				tag: tags[ this.tags.apostrophes ],
 				class: 'cm-mw-apostrophes'
-			},
-			{
-				tag: tags[ this.tags.apostrophesBold ],
-				class: 'cm-mw-apostrophes-bold'
-			},
-			{
-				tag: tags[ this.tags.apostrophesItalic ],
-				class: 'cm-mw-apostrophes-italic'
 			},
 			{
 				tag: tags[ this.tags.comment ],
@@ -454,8 +468,16 @@ class CodeMirrorModeMediaWikiConfig {
 				class: 'cm-mw-exttag-attribute'
 			},
 			{
+				tag: context.tokenTable[ this.tags.extTagAttributeValue ],
+				class: 'cm-mw-exttag-attribute-value'
+			},
+			{
 				tag: context.tokenTable[ this.tags.extTagName ],
 				class: 'cm-mw-exttag-name'
+			},
+			{
+				tag: context.tokenTable[ this.tags.htmlTagAttributeValue ],
+				class: 'cm-mw-htmltag-attribute-value'
 			},
 			{
 				tag: context.tokenTable[ this.tags.freeExtLink ],
@@ -468,6 +490,10 @@ class CodeMirrorModeMediaWikiConfig {
 			{
 				tag: context.tokenTable[ this.tags.htmlEntity ],
 				class: 'cm-mw-html-entity'
+			},
+			{
+				tag: context.tokenTable[ this.tags.imageParameter ],
+				class: 'cm-mw-image-parameter'
 			},
 			{
 				tag: context.tokenTable[ this.tags.link ],
@@ -490,6 +516,10 @@ class CodeMirrorModeMediaWikiConfig {
 				class: 'cm-mw-tag-pre'
 			},
 			{
+				tag: context.tokenTable[ this.tags.redirect ],
+				class: 'cm-mw-redirect'
+			},
+			{
 				tag: context.tokenTable[ this.tags.section ],
 				class: 'cm-mw-section'
 			},
@@ -504,6 +534,10 @@ class CodeMirrorModeMediaWikiConfig {
 			{
 				tag: context.tokenTable[ this.tags.tableCaption ],
 				class: 'cm-mw-table-caption'
+			},
+			{
+				tag: context.tokenTable[ this.tags.tableDefinitionValue ],
+				class: 'cm-mw-table-definition-value'
 			},
 			{
 				tag: context.tokenTable[ this.tags.templateVariableDelimiter ],

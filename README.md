@@ -1,24 +1,26 @@
 The CodeMirror extension provides syntax highlighting in MediaWiki wikitext editors using
 the [CodeMirror library](https://codemirror.net/).
 
-CodeMirror 6 homepage: [https://www.mediawiki.org/wiki/Extension:CodeMirror/6](https://www.mediawiki.org/wiki/Extension:CodeMirror/6)
+Extension homepage:
+[https://www.mediawiki.org/wiki/Extension:CodeMirror](https://www.mediawiki.org/wiki/Special:MyLanguage/Extension:CodeMirror)
 
-JS documentation: [https://doc.wikimedia.org/CodeMirror](https://doc.wikimedia.org/CodeMirror)
+JS documentation:
+[https://doc.wikimedia.org/CodeMirror](https://doc.wikimedia.org/CodeMirror)
 
 ## Development
 
 ### Preface
 
 Extension:CodeMirror is currently in the process of being upgraded to the new major version, CodeMirror 6.
-See the [change log](https://www.mediawiki.org/wiki/Extension:CodeMirror/6#Change_log) for details.
+See the [change log](https://www.mediawiki.org/wiki/Extension:CodeMirror#Change_log) for details.
 
 Use of CodeMirror 6 is controlled by the `wgCodeMirrorV6` configuration setting, or by
 passing in `cm6enable=1` in the URL query string.
 
-CodeMirror 6 requires the use of NPM to bundle the dependencies. These are bundled in
-[resources/codemirror.bundle.js](resources/codemirror.bundle.js), built using [Rollup](https://rollupjs.org/),
-and packaged as the `ext.CodeMirror.v6.lib` ResourceLoader module. If you make changes to the
-versions of the dependencies, you will need to run `npm run build` to update the ResourceLoader module.
+CodeMirror 6 requires the use of NPM to bundle the dependencies. These are built using
+[Rollup](https://rollupjs.org/) and packaged as ResourceLoader-compatible modules under `lib/`.
+If you make changes to the versions of `@codemirror` or `@lezer` packages,
+you will need to run `npm run build` to update the ResourceLoader modules.
 
 ### NPM commands
 
@@ -36,5 +38,13 @@ _NOTE: Consider using [Fresh](https://gerrit.wikimedia.org/g/fresh/) to run thes
 * `npm run build` to rebundle the CodeMirror library. If changes are made to the `@codemirror`
   or `@lezer` dependencies in [package.json](package.json), this command *must* be run before
   sending the patch or CI will fail.
+* `npm run build:eslint` to rebundle the ESLint library. If changes are made to the
+  `@bhsd/eslint-browserify` dependency in [package.json](package.json) or the
+  [JavaScript worker](resources/workers/javascript/worker.js), this command *must* be run
+  before sending the patch.
+* `npm run build:stylelint` to rebundle the Stylelint library. If changes are made to the
+  `@bhsd/stylelint-browserify` dependency in [package.json](package.json) or the
+  [CSS worker](resources/workers/css/worker.js), this command *must* be run before sending the
+  patch.
 * Older QUnit tests are in `resources/mode/mediawiki/tests/qunit/`. These have been
   replaced and will be removed after the CodeMirror 6 upgrade is complete.

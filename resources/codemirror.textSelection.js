@@ -44,7 +44,7 @@ class CodeMirrorTextSelection {
 	 * @stable to call
 	 */
 	setContents( content ) {
-		this.view.dispatch( {
+		this.dispatch( {
 			changes: {
 				from: 0,
 				to: this.view.state.doc.length,
@@ -63,7 +63,7 @@ class CodeMirrorTextSelection {
 	 * @return {number[]|number}
 	 * @stable to call
 	 */
-	getCaretPosition( options ) {
+	getCaretPosition( options = {} ) {
 		if ( !options.startAndEnd ) {
 			return this.view.state.selection.main.head;
 		}
@@ -82,7 +82,7 @@ class CodeMirrorTextSelection {
 	scrollToCaretPosition() {
 		const scrollEffect = EditorView.scrollIntoView( this.view.state.selection.main.head );
 		scrollEffect.value.isSnapshot = true;
-		this.view.dispatch( {
+		this.dispatch( {
 			effects: scrollEffect
 		} );
 		return this.$cmDom;
@@ -111,7 +111,7 @@ class CodeMirrorTextSelection {
 	 * @stable to call
 	 */
 	setSelection( options ) {
-		this.view.dispatch( {
+		this.dispatch( {
 			selection: { anchor: options.start, head: ( options.end || options.start ) }
 		} );
 		this.view.focus();
@@ -126,9 +126,7 @@ class CodeMirrorTextSelection {
 	 * @stable to call
 	 */
 	replaceSelection( value ) {
-		this.view.dispatch(
-			this.view.state.replaceSelection( value )
-		);
+		this.dispatch( this.view.state.replaceSelection( value ) );
 		return this.$cmDom;
 	}
 
@@ -140,7 +138,7 @@ class CodeMirrorTextSelection {
 	 * [EditorState.changeByRange](https://codemirror.net/docs/ref/#state.EditorState.changeByRange)
 	 * when there are multiple selections.
 	 *
-	 * @todo Add support for 'ownline' and 'splitlines' options.
+	 * @todo Add support for 'ownline' option, and complete support for 'selectPeri'.
 	 *
 	 * @param {Object} options
 	 * @param {string} [options.pre] The text to insert before the cursor/selection.
@@ -149,6 +147,8 @@ class CodeMirrorTextSelection {
 	 * @param {boolean} [options.replace=false] If there is a selection, replace it with peri
 	 *   instead of leaving it alone.
 	 * @param {boolean} [options.selectPeri=true] Select the peri text if it was inserted.
+	 * @param {boolean} [options.splitlines=false] If multiple lines are selected, encapsulate
+	 *  each line individually.
 	 * @param {number} [options.selectionStart] Position to start selection at.
 	 * @param {number} [options.selectionEnd=options.selectionStart] Position to end selection at.
 	 * @return {jQuery}
@@ -157,7 +157,22 @@ class CodeMirrorTextSelection {
 	encapsulateSelection( options ) {
 		let selectedText,
 			isSample = false;
+		options = Object.assign( {
+			pre: '',
+			peri: '',
+			post: '',
+			replace: false,
+			selectPeri: true,
+			splitlines: false,
+			selectionStart: undefined,
+			selectionEnd: undefined
+		}, options );
 
+		/**
+		 * Check if the selected text is the same as the insert text.
+		 *
+		 * @ignore
+		 */
 		const checkSelectedText = () => {
 			if ( !selectedText ) {
 				selectedText = options.peri;
@@ -184,14 +199,20 @@ class CodeMirrorTextSelection {
 		if ( options.selectionStart !== undefined ) {
 			this.setSelection( {
 				start: options.selectionStart,
-				end: options.selectionEnd || options.selectionStart
+				end: options.selectionEnd
 			} );
 		}
 
 		selectedText = this.getSelection();
-		const [ startPos ] = this.getCaretPosition( { startAndEnd: true } );
+		const [ startPos, endPos ] = this.getCaretPosition( { startAndEnd: true } );
 		checkSelectedText();
-		const insertText = options.pre + selectedText + options.post;
+		let insertText = options.pre + selectedText + options.post;
+		const lines = selectedText.split( '\n' );
+		if ( options.splitlines ) {
+			insertText = lines.map(
+				( line ) => line.length ? options.pre + line + options.post : ''
+			).join( '\n' );
+		}
 
 		/**
 		 * Use CodeMirror's API when there are multiple selections.
@@ -199,7 +220,7 @@ class CodeMirrorTextSelection {
 		 * @see https://codemirror.net/examples/change/
 		 */
 		if ( this.view.state.selection.ranges.length > 1 ) {
-			this.view.dispatch( this.view.state.changeByRange( ( range ) => ( {
+			this.dispatch( this.view.state.changeByRange( ( range ) => ( {
 				changes: [
 					{ from: range.from, insert: options.pre },
 					{ from: range.to, insert: options.post }
@@ -214,11 +235,17 @@ class CodeMirrorTextSelection {
 
 		this.replaceSelection( insertText );
 
-		if ( isSample && options.selectPeri ) {
-			this.setSelection( {
-				start: startPos + options.pre.length,
-				end: startPos + options.pre.length + selectedText.length
-			} );
+		// Leave resultant selection untouched for 'selectPeri' and 'splitlines' options.
+		// TODO: jQuery.textSelection should probably have the same behaviour.
+		if ( options.selectPeri && ( isSample || options.splitlines ) ) {
+			let start = startPos + options.pre.length;
+			let end = startPos + options.pre.length + selectedText.length;
+			if ( options.splitlines && selectedText.includes( '\n' ) ) {
+				start = startPos;
+				end = endPos + ( options.pre.length + options.post.length ) *
+					lines.filter( Boolean ).length;
+			}
+			this.setSelection( { start, end } );
 		} else {
 			this.setSelection( {
 				start: startPos + insertText.length
@@ -226,6 +253,17 @@ class CodeMirrorTextSelection {
 		}
 
 		return this.$cmDom;
+	}
+
+	/**
+	 * Dispatch an event to the EditorView, but not if the state is read-only.
+	 *
+	 * @param {*} args
+	 */
+	dispatch( ...args ) {
+		if ( !this.view.state.readOnly ) {
+			this.view.dispatch( ...args );
+		}
 	}
 }
 

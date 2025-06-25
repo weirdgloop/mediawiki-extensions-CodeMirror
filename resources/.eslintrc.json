@@ -17,7 +17,25 @@
 		"ve": "readonly"
 	},
 	"rules": {
-		"es-x/no-array-prototype-includes": "off"
+		"es-x/no-array-prototype-includes": "off",
+		"jsdoc/no-undefined-types": [
+			"warn",
+			{
+				"definedTypes": [
+					"CodeMirror",
+					"CodeMirrorChild",
+					"CodeMirrorKeyBinding",
+					"CodeMirrorKeymap",
+					"CodeMirrorModeMediaWiki",
+					"CodeMirrorPreferences",
+					"CodeMirrorTextSelection",
+					"Command",
+					"Hook",
+					"LanguageSupport",
+					"StateCommand"
+				]
+			}
+		]
 	},
 	"overrides": [
 		{

@@ -15,6 +15,8 @@
 	"codemirror-previous": "পূর্ববর্তী খুঁজুন",
 	"codemirror-all": "সব",
 	"codemirror-regexp": "রেগুলার এক্সপ্রেশন",
+	"codemirror-regexp-invalid": "অবৈধ রেগুলার এক্সপ্রেশন",
+	"codemirror-by-word": "সম্পূর্ণ শব্দ",
 	"codemirror-replace": "প্রতিস্থাপন করুন",
 	"codemirror-replace-placeholder": "প্রতিস্থাপন করুন",
 	"codemirror-replace-all": "সব প্রতিস্থাপন করুন",
@@ -30,5 +32,6 @@
 	"codemirror-special-char-right-to-left-mark": "ডান-থেকে-বাম চিহ্ন",
 	"codemirror-special-char-line-separator": "লাইন বিভাজক",
 	"codemirror-special-char-object-replacement": "বস্তু প্রতিস্থাপন অক্ষর",
+	"codemirror-keymap-lint": "লিন্টার",
 	"prefs-accessibility": "অভিগম্যতা"
 }

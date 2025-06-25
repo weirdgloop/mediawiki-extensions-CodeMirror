@@ -9,7 +9,40 @@ const {
 } = require( 'ext.CodeMirror.v6.lib' );
 const mwModeConfig = require( './codemirror.mediawiki.config.js' );
 const bidiIsolationExtension = require( './codemirror.mediawiki.bidiIsolation.js' );
-const templateFoldingExtension = require( './codemirror.mediawiki.templateFolding.js' );
+const { codeFoldingExtension } = require( './codemirror.mediawiki.codeFolding.js' );
+const { autocompleteExtension, completionSource } = require( './codemirror.mediawiki.autocomplete.js' );
+const openLinksExtension = require( './codemirror.mediawiki.openLinks.js' );
+const mwKeymap = require( './codemirror.mediawiki.keymap.js' );
+
+const specialParserFunctions = {
+		ifexist: 0,
+		lst: 0,
+		lstx: 0,
+		lsth: 0,
+		filepath: 6,
+		int: 8,
+		invoke: 828
+	},
+	nsIds = mw.config.get( 'wgNamespaceIds' ),
+	fileNsRegex = new RegExp( `^(?:${
+		Object.entries( nsIds ).filter( ( [ , id ] ) => id === 6 ).map( ( [ ns ] ) => ns ).join( '|' )
+	})\\s*:`, 'i' );
+
+const copyState = ( state ) => {
+	const newState = {};
+	for ( const key in state ) {
+		const val = state[ key ];
+		if ( Array.isArray( val ) ) {
+			newState[ key ] = [ ...val ];
+		} else if ( key === 'extState' ) {
+			newState.extState =
+				( state.extName && state.extMode && state.extMode.copyState || copyState )( val );
+		} else {
+			newState[ key ] = key !== 'data' && val && typeof val === 'object' ? Object.assign( {}, val ) : val;
+		}
+	}
+	return newState;
+};
 
 /**
  * MediaWiki language support for CodeMirror 6.
@@ -18,15 +51,11 @@ const templateFoldingExtension = require( './codemirror.mediawiki.templateFoldin
  * @module CodeMirrorModeMediaWiki
  *
  * @example
- * mw.loader.using( [
- *   'ext.CodeMirror.v6',
- *   'ext.CodeMirror.v6.mode.mediawiki'
- * ] ).then( ( require ) => {
- *   const CodeMirror = require( 'ext.CodeMirror.v6' );
- *   const mediawikiLang = require( 'ext.CodeMirror.v6.mode.mediawiki' );
- *   const cm = new CodeMirror( myTextarea );
- *   cm.initialize( [ cm.defaultExtensions, mediawikiLang() ] );
- * } );
+ * const require = await mw.loader.using( [ 'ext.CodeMirror.v6', 'ext.CodeMirror.v6.mode.mediawiki' ] );
+ * const CodeMirror = require( 'ext.CodeMirror.v6' );
+ * const mediawikiLang = require( 'ext.CodeMirror.v6.mode.mediawiki' );
+ * const cm = new CodeMirror( myTextarea, mediawikiLang() );
+ * cm.initialize();
  */
 class CodeMirrorModeMediaWiki {
 	/**
@@ -35,23 +64,45 @@ class CodeMirrorModeMediaWiki {
 	 */
 	constructor( config ) {
 		this.config = config;
-
-		this.urlProtocols = new RegExp( `^(?:${ this.config.urlProtocols })(?=[^\\s\u00a0{[\\]<>~).,'])`, 'i' );
-		this.isBold = false;
-		this.wasBold = false;
-		this.isItalic = false;
-		this.wasItalic = false;
-		this.firstSingleLetterWord = null;
-		this.firstMultiLetterWord = null;
-		this.firstSpace = null;
-		this.oldStyle = null;
-		this.tokens = [];
-		this.oldTokens = [];
+		this.urlProtocols = new RegExp( `^(?:${ config.urlProtocols })(?=[^\\s\u00a0{[\\]<>~).,'])`, 'i' );
 		this.tokenTable = mwModeConfig.tokenTable;
 		this.registerGroundTokens();
 
+		for ( const k in specialParserFunctions ) {
+			mwModeConfig.addFunction( specialParserFunctions[ k ] );
+		}
 		// Dynamically register any tags that aren't already in CodeMirrorModeMediaWikiConfig
-		Object.keys( this.config.tags ).forEach( ( tag ) => mwModeConfig.addTag( tag ) );
+		Object.keys( config.tags ).forEach( ( tag ) => mwModeConfig.addTag( tag ) );
+
+		this.functionSynonyms = [
+			...Object.keys( config.functionSynonyms[ 0 ] )
+				.map( ( label ) => ( { type: 'function', label } ) ),
+			...Object.keys( config.functionSynonyms[ 1 ] )
+				.map( ( label ) => ( { type: 'constant', label } ) )
+		];
+		this.doubleUnderscore = [
+			...Object.keys( config.doubleUnderscore[ 0 ] ),
+			...Object.keys( config.doubleUnderscore[ 1 ] )
+		].map( ( label ) => ( { type: 'constant', label } ) );
+		const extTags = Object.keys( config.tags );
+		this.extTags = extTags.map( ( label ) => ( { type: 'type', label } ) );
+		this.htmlTags = Object.keys( mwModeConfig.permittedHtmlTags )
+			.filter( ( tag ) => !extTags.includes( tag ) )
+			.map( ( label ) => ( { type: 'type', label } ) );
+		this.protocols = config.urlProtocols.split( '|' )
+			.map( ( label ) => ( { type: 'namespace', label: label.replace( /\\([:/])/g, '$1' ) } ) );
+		this.redirectRegex = new RegExp( `^\\s*(?:${
+			config.redirection.join( '|' )
+		})(\\s*:)?\\s*(?=\\[\\[)`, 'i' );
+		this.nsRegex = new RegExp( `^(${
+			Object.keys( nsIds ).filter( Boolean ).join( '|' ).replace( /_/g, ' ' )
+		})\\s*:\\s*`, 'i' );
+		const img = Object.keys( config.imageKeywords ).filter( ( word ) => !/\$1./.test( word ) );
+		this.imgRegex = new RegExp( `^(?:${
+			img.filter( ( word ) => word.endsWith( '$1' ) ).map( ( word ) => word.slice( 0, -2 ) ).join( '|' )
+		}|(?:${
+			img.filter( ( word ) => !word.endsWith( '$1' ) ).join( '|' )
+		}|(?:\\d+x?|\\d*x\\d+)\\s*(?:px)?px)\\s*(?=\\||\\]\\]|$))` );
 	}
 
 	/**
@@ -115,17 +166,18 @@ class CodeMirrorModeMediaWiki {
 	}
 
 	isNested( state ) {
-		return state.nExt > 0 || state.nTemplate > 0 || state.nLink > 0;
+		return state.nExt > 0 || state.nTemplate > 0 || state.nLink > 0 || state.nExtLink > 0;
+	}
+
+	makeFullStyle( style, state ) {
+		return ( typeof style === 'string' ?
+			style :
+			`${ style[ 0 ] } ${ state.bold || state.nDt > 0 ? mwModeConfig.tags.strong : '' } ${ state.italic ? mwModeConfig.tags.em : '' }`
+		).replace( /\s{2,}/g, ' ' ).trim() || ' ';
 	}
 
 	makeStyle( style, state, endGround ) {
-		if ( this.isBold || state.nDt > 0 ) {
-			style += ' ' + mwModeConfig.tags.strong;
-		}
-		if ( this.isItalic ) {
-			style += ' ' + mwModeConfig.tags.em;
-		}
-		return this.makeLocalStyle( style, state, endGround );
+		return [ this.makeLocalStyle( style, state, endGround ) ];
 	}
 
 	makeLocalStyle( style, state, endGround ) {
@@ -156,7 +208,7 @@ class CodeMirrorModeMediaWiki {
 				ground += '-ext3';
 				break;
 		}
-		if ( state.nLink > 0 ) {
+		if ( state.nLink > 0 || state.nExtLink > 0 ) {
 			ground += '-link';
 		}
 		if ( ground !== '' ) {
@@ -248,32 +300,47 @@ class CodeMirrorModeMediaWiki {
 		return this.eatWikiText( mwModeConfig.tags.templateVariable )( stream, state );
 	}
 
-	inParserFunctionName( stream, state ) {
-		// FIXME: {{#name}} and {{uc}} are wrong, must have ':'
-		if ( stream.match( /^#?[^:}{~]+/ ) ) {
-			return this.makeLocalStyle( mwModeConfig.tags.parserFunctionName, state );
-		}
-		if ( stream.eat( ':' ) ) {
-			state.tokenize = this.inParserFunctionArguments.bind( this );
-			return this.makeLocalStyle( mwModeConfig.tags.parserFunctionDelimiter, state );
-		}
-		if ( stream.match( '}}' ) ) {
-			state.tokenize = state.stack.pop();
-			return this.makeLocalStyle( mwModeConfig.tags.parserFunctionBracket, state, 'nExt' );
-		}
-		return this.eatWikiText( mwModeConfig.tags.parserFunction )( stream, state );
+	inParserFunctionName( ns ) {
+		return ( stream, state ) => {
+			// FIXME: {{#name}} and {{uc}} are wrong, must have ':'
+			const mt = stream.match( /^#?[^:}{~]+/ );
+			if ( mt ) {
+				const name = this.config.functionSynonyms[ 0 ][ mt[ 0 ].trim().toLowerCase() ];
+				if ( name in specialParserFunctions ) {
+					state.tokenize = this.inParserFunctionName( specialParserFunctions[ name ] );
+				}
+				return this.makeLocalStyle( mwModeConfig.tags.parserFunctionName, state );
+			}
+			if ( stream.eat( ':' ) ) {
+				state.tokenize = this.inParserFunctionArguments( ns );
+				return this.makeLocalStyle( mwModeConfig.tags.parserFunctionDelimiter, state );
+			}
+			if ( stream.match( '}}' ) ) {
+				state.tokenize = state.stack.pop();
+				return this.makeLocalStyle( mwModeConfig.tags.parserFunctionBracket, state, 'nExt' );
+			}
+			return this.eatWikiText( mwModeConfig.tags.parserFunction )( stream, state );
+		};
 	}
 
-	inParserFunctionArguments( stream, state ) {
-		if ( stream.match( /^[^|}{[<&~]+/ ) ) {
-			return this.makeLocalStyle( mwModeConfig.tags.parserFunction, state );
-		} else if ( stream.eat( '|' ) ) {
-			return this.makeLocalStyle( mwModeConfig.tags.parserFunctionDelimiter, state );
-		} else if ( stream.match( '}}' ) ) {
-			state.tokenize = state.stack.pop();
-			return this.makeLocalStyle( mwModeConfig.tags.parserFunctionBracket, state, 'nExt' );
-		}
-		return this.eatWikiText( mwModeConfig.tags.parserFunction )( stream, state );
+	inParserFunctionArguments( ns ) {
+		const style = ns === undefined ?
+			mwModeConfig.tags.parserFunction :
+			`${ mwModeConfig.tags.parserFunction } ${ mwModeConfig.tags.pageName } mw-function-${ ns }`;
+		return ( stream, state ) => {
+			if ( stream.match( /^[^|}{[<&~]+/ ) ) {
+				return this.makeLocalStyle( style, state );
+			} else if ( stream.eat( '|' ) ) {
+				if ( ns !== undefined ) {
+					state.tokenize = this.inParserFunctionArguments();
+				}
+				return this.makeLocalStyle( mwModeConfig.tags.parserFunctionDelimiter, state );
+			} else if ( stream.match( '}}' ) ) {
+				state.tokenize = state.stack.pop();
+				return this.makeLocalStyle( mwModeConfig.tags.parserFunctionBracket, state, 'nExt' );
+			}
+			return this.eatWikiText( style )( stream, state );
+		};
 	}
 
 	eatTemplatePageName( haveAte ) {
@@ -293,7 +360,7 @@ class CodeMirrorModeMediaWiki {
 				// @todo error message
 				state.nTemplate--;
 				state.tokenize = state.stack.pop();
-				return;
+				return '';
 			}
 			if ( stream.match( /^[\s\u00a0]*[^\s\u00a0|}<{&~]+/ ) ) {
 				state.tokenize = this.eatTemplatePageName( true );
@@ -336,7 +403,7 @@ class CodeMirrorModeMediaWiki {
 				stream.next();
 			}
 			if ( stream.eol() ) {
-				state.nLink--;
+				state.nExtLink--;
 				// @todo error message
 				state.tokenize = state.stack.pop();
 			} else {
@@ -348,14 +415,14 @@ class CodeMirrorModeMediaWiki {
 
 	inExternalLink( stream, state ) {
 		if ( stream.sol() ) {
-			state.nLink--;
+			state.nExtLink--;
 			// @todo error message
 			state.tokenize = state.stack.pop();
-			return;
+			return '';
 		}
 		if ( stream.match( /^[\s\u00a0]*\]/ ) ) {
 			state.tokenize = state.stack.pop();
-			return this.makeLocalStyle( mwModeConfig.tags.extLinkBracket, state, 'nLink' );
+			return this.makeLocalStyle( mwModeConfig.tags.extLinkBracket, state, 'nExtLink' );
 		}
 		if ( stream.eatSpace() ) {
 			state.tokenize = this.inExternalLinkText.bind( this );
@@ -376,14 +443,14 @@ class CodeMirrorModeMediaWiki {
 
 	inExternalLinkText( stream, state ) {
 		if ( stream.sol() ) {
-			state.nLink--;
+			state.nExtLink--;
 			// @todo error message
 			state.tokenize = state.stack.pop();
-			return;
+			return '';
 		}
 		if ( stream.eat( ']' ) ) {
 			state.tokenize = state.stack.pop();
-			return this.makeLocalStyle( mwModeConfig.tags.extLinkBracket, state, 'nLink' );
+			return this.makeLocalStyle( mwModeConfig.tags.extLinkBracket, state, 'nExtLink' );
 		}
 		if ( stream.match( /^[^'\]{&~<]+/ ) ) {
 			return this.makeStyle( mwModeConfig.tags.extLinkText, state );
@@ -391,34 +458,39 @@ class CodeMirrorModeMediaWiki {
 		return this.eatWikiText( mwModeConfig.tags.extLinkText )( stream, state );
 	}
 
-	inLink( stream, state ) {
-		if ( stream.sol() ) {
-			state.nLink--;
-			// @todo error message
-			state.tokenize = state.stack.pop();
-			return;
-		}
-		if ( stream.match( /^[\s\u00a0]*#[\s\u00a0]*/ ) ) {
-			state.tokenize = this.inLinkToSection.bind( this );
-			return this.makeLocalStyle( mwModeConfig.tags.link, state );
-		}
-		if ( stream.match( /^[\s\u00a0]*\|[\s\u00a0]*/ ) ) {
-			state.tokenize = this.eatLinkText();
-			return this.makeLocalStyle( mwModeConfig.tags.linkDelimiter, state );
-		}
-		if ( stream.match( /^[\s\u00a0]*\]\]/ ) ) {
-			state.tokenize = state.stack.pop();
-			return this.makeLocalStyle( mwModeConfig.tags.linkBracket, state, 'nLink' );
-		}
-		if ( stream.match( /^[\s\u00a0]*[^\s\u00a0#|\]&~{]+/ ) || stream.eatSpace() ) {
-			return this.makeStyle(
-				`${ mwModeConfig.tags.linkPageName } ${ mwModeConfig.tags.pageName }`,
-				state
-			);
-		}
-		return this.eatWikiText(
-			`${ mwModeConfig.tags.linkPageName } ${ mwModeConfig.tags.pageName }`
-		)( stream, state );
+	inLink( file ) {
+		return ( stream, state ) => {
+			if ( stream.sol() ) {
+				state.nLink--;
+				// @todo error message
+				state.tokenize = state.stack.pop();
+				return '';
+			}
+			if ( stream.match( /^[\s\u00a0]*#[\s\u00a0]*/ ) ) {
+				state.tokenize = this.inLinkToSection.bind( this );
+				return this.makeLocalStyle( mwModeConfig.tags.link, state );
+			}
+			if ( stream.match( /^[\s\u00a0]*\|[\s\u00a0]*/ ) ) {
+				state.tokenize = this.eatLinkText( file );
+				if ( file ) {
+					this.toEatImageParameters( stream, state );
+				}
+				return this.makeLocalStyle( mwModeConfig.tags.linkDelimiter, state );
+			}
+			if ( stream.match( /^[\s\u00a0]*\]\]/ ) ) {
+				state.tokenize = state.stack.pop();
+				return this.makeLocalStyle( mwModeConfig.tags.linkBracket, state, 'nLink' );
+			}
+			if ( stream.match( /^[\s\u00a0]*[^\s\u00a0#|\]&~{]+/ ) || stream.eatSpace() ) {
+				return this.makeStyle(
+					`${ mwModeConfig.tags.linkPageName } ${ mwModeConfig.tags.pageName }`,
+					state
+				);
+			}
+			return this.eatWikiText(
+				`${ mwModeConfig.tags.linkPageName } ${ mwModeConfig.tags.pageName }`
+			)( stream, state );
+		};
 	}
 
 	inLinkToSection( stream, state ) {
@@ -426,7 +498,7 @@ class CodeMirrorModeMediaWiki {
 			// @todo error message
 			state.nLink--;
 			state.tokenize = state.stack.pop();
-			return;
+			return '';
 		}
 		// FIXME '{{' breaks links, example: [[z{{page]]
 		if ( stream.match( /^[^|\]&~{}]+/ ) ) {
@@ -443,13 +515,17 @@ class CodeMirrorModeMediaWiki {
 		return this.eatWikiText( mwModeConfig.tags.linkToSection )( stream, state );
 	}
 
-	eatLinkText() {
+	eatLinkText( file ) {
 		let linkIsBold, linkIsItalic;
 		return ( stream, state ) => {
 			let tmpstyle;
-			if ( stream.match( ']]' ) ) {
+			if ( stream.match( ']]' ) || !file && stream.match( '[[', false ) ) {
 				state.tokenize = state.stack.pop();
 				return this.makeLocalStyle( mwModeConfig.tags.linkBracket, state, 'nLink' );
+			}
+			if ( file && stream.match( /^\|\s*/ ) ) {
+				this.toEatImageParameters( stream, state );
+				return this.makeLocalStyle( mwModeConfig.tags.linkDelimiter, state );
 			}
 			if ( stream.match( '\'\'\'' ) ) {
 				linkIsBold = !linkIsBold;
@@ -472,11 +548,23 @@ class CodeMirrorModeMediaWiki {
 			if ( linkIsItalic ) {
 				tmpstyle += ' ' + mwModeConfig.tags.em;
 			}
-			if ( stream.match( /^[^'\]{&~<]+/ ) ) {
+			if ( stream.match( file ? /^[^'\]{&~<[|]+/ : /^(?:[^'[\]{&~<]|\[(?!\[))+/ ) ) {
 				return this.makeStyle( tmpstyle, state );
 			}
 			return this.eatWikiText( tmpstyle )( stream, state );
 		};
+	}
+
+	toEatImageParameters( stream, state ) {
+		const mt = stream.match( this.imgRegex, false );
+		if ( mt ) {
+			state.stack.push( state.tokenize );
+			state.tokenize = ( stream2, state2 ) => {
+				stream2.pos += mt[ 0 ].length;
+				state2.tokenize = state2.stack.pop();
+				return this.makeLocalStyle( mwModeConfig.tags.imageParameter, state2 );
+			};
+		}
 	}
 
 	eatTagName( chars, isCloseTag, isHtmlTag ) {
@@ -510,12 +598,10 @@ class CodeMirrorModeMediaWiki {
 		};
 	}
 
-	eatHtmlTagAttribute( name ) {
+	eatHtmlTagAttribute( name, quote ) {
+		const style = mwModeConfig.tags[ quote === undefined ? 'htmlTagAttribute' : 'htmlTagAttributeValue' ];
 		return ( stream, state ) => {
 
-			if ( stream.match( /^(?:"[^<">]*"|'[^<'>]*'|[^>/<{&~])+/ ) ) {
-				return this.makeLocalStyle( mwModeConfig.tags.htmlTagAttribute, state );
-			}
 			if ( stream.eat( '>' ) ) {
 				if ( !( name in mwModeConfig.implicitlyClosedHtmlTags ) ) {
 					state.inHtmlTag.push( name );
@@ -527,7 +613,50 @@ class CodeMirrorModeMediaWiki {
 				state.tokenize = state.stack.pop();
 				return this.makeLocalStyle( mwModeConfig.tags.htmlTagBracket, state );
 			}
-			return this.eatWikiText( mwModeConfig.tags.htmlTagAttribute )( stream, state );
+			const peek = stream.peek();
+			if ( peek === '<' ) {
+				const { pos } = stream,
+					{ length } = state.stack,
+					// eat comment or extension tag
+					result = this.eatWikiText( '' )( stream, state );
+				if (
+					typeof result !== 'string' ||
+					!result.includes( mwModeConfig.tags.comment ) &&
+					!result.includes( mwModeConfig.tags.extTagBracket )
+				) {
+					state.stack.length = length;
+					state.tokenize = state.stack.pop();
+					stream.pos = pos;
+					return '';
+				}
+				return result;
+			}
+			if ( peek === '&' || peek === '{' ) {
+				return this.eatWikiText( style )( stream, state );
+			}
+			if ( quote ) {
+				if ( stream.eat( quote[ 0 ] ) ) {
+					state.tokenize = this.eatHtmlTagAttribute( name, quote[ 1 ] );
+				} else {
+					stream.match( new RegExp( `^(?:[^<>&{/${ quote[ 0 ] }]|/(?!>))+` ) );
+				}
+				return this.makeLocalStyle( style, state );
+			}
+			if ( quote === '' ) {
+				if ( stream.sol() || /\s/.test( peek ) ) {
+					state.tokenize = this.eatHtmlTagAttribute( name );
+					return '';
+				}
+				stream.match( /^(?:[^\s<>&{/]|\/(?!>))+/ );
+				return this.makeLocalStyle( style, state );
+			}
+			if ( stream.match( /^=\s*/ ) ) {
+				const next = stream.peek();
+				state.tokenize = this.eatHtmlTagAttribute( name, next === '"' || next === "'" ? next.repeat( 2 ) : '' );
+				return this.makeLocalStyle( style, state );
+			}
+			stream.match( /^(?:[^<>&={/]|\/(?!>))+/ );
+			return this.makeLocalStyle( style, state );
 		};
 	}
 
@@ -542,12 +671,13 @@ class CodeMirrorModeMediaWiki {
 		};
 	}
 
-	eatExtTagAttribute( name ) {
+	eatExtTagAttribute( name, quote, isPage ) {
+		const style = `${ mwModeConfig.tags.extTagAttribute } mw-ext-${ name }`,
+			valueStyle = `${ mwModeConfig.tags.extTagAttributeValue } ${ isPage ?
+				`${ mwModeConfig.tags.pageName } mw-ext-${ name }` :
+				'' }`;
 		return ( stream, state ) => {
 
-			if ( stream.match( /^(?:"[^">]*"|'[^'>]*'|[^>/<{&~])+/ ) ) {
-				return this.makeLocalStyle( `${ mwModeConfig.tags.extTagAttribute } mw-ext-${ name }`, state );
-			}
 			if ( stream.eat( '>' ) ) {
 				state.extName = name;
 
@@ -576,7 +706,36 @@ class CodeMirrorModeMediaWiki {
 				state.tokenize = state.stack.pop();
 				return this.makeLocalStyle( `${ mwModeConfig.tags.extTagBracket } mw-ext-${ name }`, state );
 			}
-			return this.eatWikiText( `${ mwModeConfig.tags.extTagAttribute } mw-ext-${ name }` )( stream, state );
+			if ( quote ) {
+				if ( stream.eat( quote[ 0 ] ) ) {
+					state.tokenize = this.eatExtTagAttribute(
+						name,
+						quote[ 1 ],
+						quote[ 1 ] && isPage
+					);
+					return this.makeLocalStyle( mwModeConfig.tags.extTagAttributeValue, state );
+				}
+				stream.match( new RegExp( `^(?:[^>/${ quote[ 0 ] }]|/(?!>))+` ) );
+				return this.makeLocalStyle( valueStyle, state );
+			}
+			if ( quote === '' ) {
+				if ( stream.sol() || /\s/.test( stream.peek() ) ) {
+					state.tokenize = this.eatExtTagAttribute( name );
+					return '';
+				}
+				stream.match( /^(?:[^>/\s]|\/(?!>))+/ );
+				return this.makeLocalStyle( valueStyle, state );
+			}
+			if ( stream.match( /^=\s*/ ) ) {
+				const next = stream.peek();
+				state.tokenize = this.eatExtTagAttribute( name, next === '"' || next === "'" ? next.repeat( 2 ) : '', isPage );
+				return this.makeLocalStyle( style, state );
+			}
+			const mt = stream.match( /^(?:[^>/=]|\/(?!>))+/ );
+			if ( stream.peek() === '=' && name === 'templatestyles' && /(?:^|\s)src\s*$/i.test( mt[ 0 ] ) ) {
+				state.tokenize = this.eatExtTagAttribute( name, undefined, true );
+			}
+			return this.makeLocalStyle( style, state );
 		};
 	}
 
@@ -620,7 +779,7 @@ class CodeMirrorModeMediaWiki {
 	}
 
 	eatExtTokens( origString ) {
-		return ( stream, state ) => {
+		const tokenize = ( stream, state ) => {
 			let ret;
 			if ( state.extMode === false ) {
 				ret = mwModeConfig.tags.extTag;
@@ -637,21 +796,47 @@ class CodeMirrorModeMediaWiki {
 			}
 			return this.makeLocalStyle( ret, state );
 		};
+		Object.defineProperty( tokenize, 'name', { value: 'eatExtTokens' } );
+		return tokenize;
 	}
 
 	eatStartTable( stream, state ) {
 		stream.match( '{|' );
 		stream.eatSpace();
-		state.tokenize = this.inTableDefinition.bind( this );
+		state.tokenize = this.inTableDefinition();
 		return mwModeConfig.tags.tableBracket;
 	}
 
-	inTableDefinition( stream, state ) {
-		if ( stream.sol() ) {
-			state.tokenize = this.inTable.bind( this );
-			return this.inTable( stream, state );
-		}
-		return this.eatWikiText( mwModeConfig.tags.tableDefinition )( stream, state );
+	inTableDefinition( quote ) {
+		const style = mwModeConfig.tags[ quote === undefined ? 'tableDefinition' : 'tableDefinitionValue' ];
+		return ( stream, state ) => {
+			if ( stream.sol() ) {
+				state.tokenize = this.inTable.bind( this );
+				return this.inTable( stream, state );
+			} else if ( stream.match( /^[&{<]/, false ) ) {
+				return this.eatWikiText( style )( stream, state );
+			} else if ( quote ) {
+				if ( stream.eat( quote[ 0 ] ) ) {
+					state.tokenize = this.inTableDefinition( quote[ 1 ] );
+				} else {
+					stream.match( new RegExp( `^[^&{<${ quote[ 0 ] }]+` ) );
+				}
+				return this.makeLocalStyle( style, state );
+			} else if ( quote === '' ) {
+				if ( /\s/.test( stream.peek() ) ) {
+					state.tokenize = this.inTableDefinition();
+					return '';
+				}
+				stream.match( /^[^\s&{<]+/ );
+				return this.makeLocalStyle( style, state );
+			} else if ( stream.match( /^=\s*/ ) ) {
+				const next = stream.peek();
+				state.tokenize = this.inTableDefinition( next === '"' || next === "'" ? next.repeat( 2 ) : '' );
+				return this.makeLocalStyle( style, state );
+			}
+			stream.match( /^[^&{<=]+/ );
+			return this.makeLocalStyle( style, state );
+		};
 	}
 
 	inTable( stream, state ) {
@@ -660,7 +845,7 @@ class CodeMirrorModeMediaWiki {
 			if ( stream.eat( '|' ) ) {
 				if ( stream.eat( '-' ) ) {
 					stream.eatSpace();
-					state.tokenize = this.inTableDefinition.bind( this );
+					state.tokenize = this.inTableDefinition();
 					return this.makeLocalStyle( mwModeConfig.tags.tableDelimiter, state );
 				}
 				if ( stream.eat( '+' ) ) {
@@ -704,12 +889,14 @@ class CodeMirrorModeMediaWiki {
 					return this.makeStyle( tag, state );
 				}
 				if ( stream.match( '||' ) || ( isHead && stream.match( '!!' ) ) ) {
-					this.isBold = false;
-					this.isItalic = false;
+					state.bold = false;
+					state.italic = false;
 					state.tokenize = this.eatTableRow( true, isHead, isCaption );
 					return this.makeLocalStyle( mwModeConfig.tags.tableDelimiter, state );
 				}
 				if ( isStart && stream.eat( '|' ) ) {
+					state.bold = false;
+					state.italic = false;
 					state.tokenize = this.eatTableRow( false, isHead, isCaption );
 					return this.makeLocalStyle( mwModeConfig.tags.tableDelimiter, state );
 				}
@@ -753,7 +940,7 @@ class CodeMirrorModeMediaWiki {
 
 	eatList( stream, state ) {
 		// Just consume all nested list and indention syntax when there is more
-		const mt = stream.match( /^[*#;:]*/u );
+		const mt = stream.match( /^[*#;:]*/ );
 		if ( mt && !this.isNested( state ) && mt[ 0 ].includes( ';' ) ) {
 			state.nDt += mt[ 0 ].split( ';' ).length - 1;
 		}
@@ -767,6 +954,9 @@ class CodeMirrorModeMediaWiki {
 	 */
 	eatWikiText( style ) {
 		return ( stream, state ) => {
+			if ( stream.eol() ) {
+				return '';
+			}
 			let ch, tmp, mt, name, isCloseTag, tagname;
 			const sol = stream.sol();
 
@@ -777,6 +967,16 @@ class CodeMirrorModeMediaWiki {
 			}
 
 			if ( sol ) {
+				if ( state.sof ) {
+					if ( stream.match( /^\s+$/ ) ) {
+						return '';
+					}
+					state.sof = false;
+					const mtRedirect = stream.match( this.redirectRegex );
+					if ( mtRedirect ) {
+						return mwModeConfig.tags.redirect;
+					}
+				}
 				// highlight free external links, see T108448
 				if ( !stream.match( '//', false ) && stream.match( this.urlProtocols ) ) {
 					state.stack.push( state.tokenize );
@@ -845,7 +1045,7 @@ class CodeMirrorModeMediaWiki {
 						if ( stream.eat( '|' ) ) {
 							stream.eatSpace();
 							state.stack.push( state.tokenize );
-							state.tokenize = this.inTableDefinition.bind( this );
+							state.tokenize = this.inTableDefinition();
 							return mwModeConfig.tags.tableBracket;
 						}
 				}
@@ -865,14 +1065,14 @@ class CodeMirrorModeMediaWiki {
 						break;
 					}
 					if ( stream.match( '\'\'' ) ) { // bold
-						if ( !( this.firstSingleLetterWord || stream.match( '\'\'', false ) ) ) {
-							this.prepareItalicForCorrection( stream );
+						if ( !( state.data.firstSingleLetterWord || stream.match( '\'\'', false ) ) ) {
+							this.prepareItalicForCorrection( stream, state );
 						}
-						this.isBold = !this.isBold;
-						return this.makeLocalStyle( mwModeConfig.tags.apostrophesBold, state );
+						state.bold = !state.bold;
+						return this.makeLocalStyle( mwModeConfig.tags.apostrophes, state );
 					} else if ( stream.eat( '\'' ) ) { // italic
-						this.isItalic = !this.isItalic;
-						return this.makeLocalStyle( mwModeConfig.tags.apostrophesItalic, state );
+						state.italic = !state.italic;
+						return this.makeLocalStyle( mwModeConfig.tags.apostrophes, state );
 					}
 					break;
 				case '[':
@@ -881,13 +1081,13 @@ class CodeMirrorModeMediaWiki {
 						if ( /[^\]|[]/.test( stream.peek() ) ) {
 							state.nLink++;
 							state.stack.push( state.tokenize );
-							state.tokenize = this.inLink.bind( this );
+							state.tokenize = this.inLink( stream.match( fileNsRegex, false ) );
 							return this.makeLocalStyle( mwModeConfig.tags.linkBracket, state );
 						}
 					} else {
 						mt = stream.match( this.urlProtocols );
 						if ( mt ) {
-							state.nLink++;
+							state.nExtLink++;
 							stream.backUp( mt[ 0 ].length );
 							state.stack.push( state.tokenize );
 							state.tokenize = this.eatExternalLinkProtocol( mt[ 0 ].length );
@@ -911,7 +1111,7 @@ class CodeMirrorModeMediaWiki {
 						if ( stream.peek() === '#' ) {
 							state.nExt++;
 							state.stack.push( state.tokenize );
-							state.tokenize = this.inParserFunctionName.bind( this );
+							state.tokenize = this.inParserFunctionName();
 							return this.makeLocalStyle(
 								mwModeConfig.tags.parserFunctionBracket,
 								state
@@ -923,21 +1123,22 @@ class CodeMirrorModeMediaWiki {
 							const [ , f, delimiter ] = name,
 								ff = delimiter === ':' ? f : f.trim(),
 								ffLower = ff.toLowerCase(),
-								{ config: { functionSynonyms } } = this;
+								{ config: { functionSynonyms, variableIDs } } = this,
+								insensitiveName = Object.prototype.hasOwnProperty.call(
+									functionSynonyms[ 0 ], ffLower
+								) && functionSynonyms[ 0 ][ ffLower ],
+								sensitiveName = Object.prototype.hasOwnProperty.call(
+									functionSynonyms[ 1 ], ff
+								) && functionSynonyms[ 1 ][ ff ],
+								canonicalName = insensitiveName || sensitiveName;
 							if (
 								( !delimiter || delimiter === ':' || delimiter === '}' ) &&
-								(
-									Object.prototype.hasOwnProperty.call(
-										functionSynonyms[ 0 ], ffLower
-									) ||
-									Object.prototype.hasOwnProperty.call(
-										functionSynonyms[ 1 ], ff
-									)
-								)
+								canonicalName &&
+								( delimiter === ':' || variableIDs.includes( canonicalName ) )
 							) {
 								state.nExt++;
 								state.stack.push( state.tokenize );
-								state.tokenize = this.inParserFunctionName.bind( this );
+								state.tokenize = this.inParserFunctionName();
 								return this.makeLocalStyle(
 									mwModeConfig.tags.parserFunctionBracket,
 									state
@@ -1067,39 +1268,38 @@ class CodeMirrorModeMediaWiki {
 	 * @see https://phabricator.wikimedia.org/T108455
 	 *
 	 * @param {StringStream} stream
+	 * @param {Object} state
 	 * @private
 	 */
-	prepareItalicForCorrection( stream ) {
+	prepareItalicForCorrection( stream, state ) {
 		// See Parser::doQuotes() in MediaWiki Core, it works similarly.
-		// this.firstSingleLetterWord has maximum priority
-		// this.firstMultiLetterWord has medium priority
-		// this.firstSpace has low priority
+		// firstSingleLetterWord has maximum priority
+		// firstMultiLetterWord has medium priority
+		// firstSpace has low priority
 		const end = stream.pos,
 			str = stream.string.slice( 0, end - 3 ),
 			x1 = str.slice( -1 ),
 			x2 = str.slice( -2, -1 );
 
-		// this.firstSingleLetterWord always is undefined here
+		// firstSingleLetterWord always is undefined here
 		if ( x1 === ' ' ) {
-			if ( this.firstMultiLetterWord || this.firstSpace ) {
+			if ( state.data.firstMultiLetterWord || state.data.firstSpace ) {
 				return;
 			}
-			this.firstSpace = end;
+			state.data.firstSpace = end;
 		} else if ( x2 === ' ' ) {
-			this.firstSingleLetterWord = end;
-		} else if ( this.firstMultiLetterWord ) {
+			state.data.firstSingleLetterWord = end;
+		} else if ( state.data.firstMultiLetterWord ) {
 			return;
 		} else {
-			this.firstMultiLetterWord = end;
+			state.data.firstMultiLetterWord = end;
 		}
-		// remember bold and italic state for later restoration
-		this.wasBold = this.isBold;
-		this.wasItalic = this.isItalic;
+		state.data.mark = end;
 	}
 
 	/**
 	 * @see https://codemirror.net/docs/ref/#language.StreamParser
-	 * @return {StreamParser}
+	 * @type {StreamParser}
 	 * @private
 	 */
 	get mediawiki() {
@@ -1121,8 +1321,20 @@ class CodeMirrorModeMediaWiki {
 				extState: false,
 				nTemplate: 0,
 				nLink: 0,
+				nExtLink: 0,
 				nExt: 0,
-				nDt: 0
+				nDt: 0,
+				bold: false,
+				italic: false,
+				sof: true,
+				data: {
+					firstSingleLetterWord: null,
+					firstMultiLetterWord: null,
+					firstSpace: null,
+					readyTokens: [],
+					oldToken: null,
+					mark: null
+				}
 			} ),
 
 			/**
@@ -1132,18 +1344,7 @@ class CodeMirrorModeMediaWiki {
 			 * @return {Object}
 			 * @private
 			 */
-			copyState: ( state ) => ( {
-				tokenize: state.tokenize,
-				stack: state.stack.concat( [] ),
-				inHtmlTag: state.inHtmlTag.concat( [] ),
-				extName: state.extName,
-				extMode: state.extMode,
-				extState: state.extMode !== false && state.extMode.copyState( state.extState ),
-				nTemplate: state.nTemplate,
-				nLink: state.nLink,
-				nExt: state.nExt,
-				nDt: state.nDt
-			} ),
+			copyState,
 
 			/**
 			 * Reads one token, advancing the stream past it,
@@ -1155,89 +1356,99 @@ class CodeMirrorModeMediaWiki {
 			 * @private
 			 */
 			token: ( stream, state ) => {
-				let style, p, t, f,
-					readyTokens = [],
-					tmpTokens = [];
-
-				if ( this.oldTokens.length > 0 ) {
-					// just send saved tokens till they exists
-					t = this.oldTokens.shift();
-					stream.pos = t.pos;
-					state = t.state;
-					return t.style;
+				const { data } = state,
+					{ readyTokens } = data;
+				let { oldToken } = data;
+				while ( oldToken && (
+					// If the start of PartialParse is after the current position
+					stream.pos > oldToken.pos ||
+					stream.pos === oldToken.pos && state.tokenize !== oldToken.state.tokenize
+				) ) {
+					oldToken = readyTokens.shift();
 				}
-
-				if ( stream.sol() ) {
+				if ( // check the start
+					oldToken &&
+					stream.pos === oldToken.pos &&
+					stream.string === oldToken.string
+				) {
+					const { pos, string, state: other, style } = readyTokens[ 0 ];
+					delete other.bold;
+					delete other.italic;
+					Object.assign( state, other );
+					if (
+						!( state.extName && state.extMode ) &&
+						state.nLink === 0 &&
+						typeof style === 'string' &&
+						style.includes( mwModeConfig.tags.apostrophes )
+					) {
+						if ( data.mark === pos ) {
+							// rollback
+							data.mark = null;
+							// add one apostrophe, next token will be italic (two apostrophes)
+							stream.string = string.slice( 0, pos - 2 );
+							const s = state.tokenize( stream, state );
+							stream.string = string;
+							oldToken.pos++;
+							data.oldToken = oldToken;
+							return this.makeFullStyle( s, state );
+						}
+						const length = pos - stream.pos;
+						if ( length !== 3 ) {
+							state.italic = !state.italic;
+						}
+						if ( length !== 2 ) {
+							state.bold = !state.bold;
+						}
+					} else if ( typeof style === 'string' && style.includes( mwModeConfig.tags.tableDelimiter ) ) {
+						state.bold = false;
+						state.italic = false;
+					}
+					// return first saved token
+					data.oldToken = readyTokens.shift();
+					stream.pos = pos;
+					stream.string = string;
+					return this.makeFullStyle( style, state );
+				} else if ( stream.sol() ) {
 					// reset bold and italic status in every new line
+					state.bold = false;
+					state.italic = false;
 					state.nDt = 0;
-					this.isBold = false;
-					this.isItalic = false;
-					this.firstSingleLetterWord = null;
-					this.firstMultiLetterWord = null;
-					this.firstSpace = null;
+					data.firstSingleLetterWord = null;
+					data.firstMultiLetterWord = null;
+					data.firstSpace = null;
+					if ( state.tokenize.name === 'eatExtTokens' ) {
+						state.stack.pop(); // dispose eatExtTokens
+						state.tokenize = state.stack.pop(); // dispose eatExtTagArea
+						state.extName = false;
+						state.extMode = false;
+						state.extState = false;
+					}
 				}
-
+				readyTokens.length = 0;
+				data.mark = null;
+				data.oldToken = { pos: stream.pos, string: stream.string, state: copyState( state ), style: '' };
+				const { start } = stream;
 				do {
 					// get token style
-					style = state.tokenize( stream, state );
-					f = this.firstSingleLetterWord || this.firstMultiLetterWord || this.firstSpace;
-					if ( f ) {
-						// rollback point exists
-						if ( f !== p ) {
-							// new rollback point
-							p = f;
-							// it's not first rollback point
-							if ( tmpTokens.length > 0 ) {
-								// save tokens
-								readyTokens = readyTokens.concat( tmpTokens );
-								tmpTokens = [];
-							}
-						}
-						// save token
-						tmpTokens.push( {
-							pos: stream.pos,
-							style,
-							state: ( state.extMode || this.mediawiki ).copyState( state )
-						} );
-					} else {
-						// rollback point does not exist
-						// remember style before possible rollback point
-						this.oldStyle = style;
-						// just return token style
-						return style;
-					}
+					stream.start = stream.pos;
+					const st = state.tokenize( stream, state );
+					// save token
+					readyTokens.push( {
+						pos: stream.pos,
+						string: stream.string,
+						state: copyState( state ),
+						style: st
+					} );
 				} while ( !stream.eol() );
-
-				if ( this.isBold && this.isItalic ) {
-					// needs to rollback
-					// restore status
-					this.isItalic = this.wasItalic;
-					this.isBold = this.wasBold;
-					this.firstSingleLetterWord = null;
-					this.firstMultiLetterWord = null;
-					this.firstSpace = null;
-					if ( readyTokens.length > 0 ) {
-						// it contains tickets before the point of rollback
-						// add one apostrophe, next token will be italic (two apostrophes)
-						readyTokens[ readyTokens.length - 1 ].pos++;
-						// for sending tokens till the point of rollback
-						this.oldTokens = readyTokens;
-					} else {
-						// there are no tickets before the point of rollback
-						stream.pos = tmpTokens[ 0 ].pos - 2; // eat( '\'')
-						// send saved Style
-						return this.oldStyle;
-					}
-				} else {
-					// do not need to rollback
-					// send all saved tokens
-					this.oldTokens = readyTokens.concat( tmpTokens );
+				if ( !state.bold || !state.italic ) {
+					// no need to rollback
+					data.mark = null;
 				}
-				// return first saved token
-				t = this.oldTokens.shift();
-				stream.pos = t.pos;
-				state = t.state;
-				return t.style;
+				stream.start = start;
+				stream.pos = data.oldToken.pos;
+				stream.string = data.oldToken.string;
+				Object.assign( state, data.oldToken.state );
+				return '';
 			},
 
 			/**
@@ -1257,10 +1468,21 @@ class CodeMirrorModeMediaWiki {
 			 * @return {Object<Tag>}
 			 * @private
 			 */
-			tokenTable: this.tokenTable
+			tokenTable: this.tokenTable,
+
+			/**
+			 * @see https://codemirror.net/docs/ref/#language.StreamParser.languageData
+			 * @return {Object}
+			 * @private
+			 */
+			languageData: {
+				autocomplete: completionSource( this )
+			}
 		};
 	}
 }
+
+let handler;
 
 /**
  * Gets a LanguageSupport instance for the MediaWiki mode.
@@ -1270,14 +1492,14 @@ class CodeMirrorModeMediaWiki {
  * @param {Object} [config] Configuration options for the MediaWiki mode.
  * @param {boolean} [config.bidiIsolation=false] Enable bidi isolation around HTML tags.
  *   This should generally always be enabled on RTL pages, but it comes with a performance cost.
- * @param {boolean} [config.templateFolding=true] Enable template folding.
- * @param {Object|null} [mwConfig] Ignore; used only by unit tests.
+ * @param {boolean} [config.codeFolding=true] Enable code folding.
+ * @param {boolean} [config.autocomplete=true] Enable autocompletion.
+ * @param {boolean} [config.openLinks=true] Enable opening of links.
  * @return {LanguageSupport}
  * @stable to call
  */
-const mediaWikiLang = ( config = { bidiIsolation: false }, mwConfig = null ) => {
-	mwConfig = mwConfig || mw.config.get( 'extCodeMirrorConfig' );
-	const mode = new CodeMirrorModeMediaWiki( mwConfig );
+const mediaWikiLang = ( config = { bidiIsolation: false } ) => {
+	const mode = new CodeMirrorModeMediaWiki( mw.config.get( 'extCodeMirrorConfig' ) );
 	const parser = mode.mediawiki;
 	const lang = StreamLanguage.define( parser );
 	const langExtension = [ syntaxHighlighting(
@@ -1286,19 +1508,35 @@ const mediaWikiLang = ( config = { bidiIsolation: false }, mwConfig = null ) => 
 		)
 	) ];
 
-	// Set to [] to disable everywhere, or null to enable everywhere.
-	const templateFoldingNs = mwConfig.templateFoldingNamespaces;
-	const shouldUseFolding = !templateFoldingNs || templateFoldingNs.includes( mw.config.get( 'wgNamespaceNumber' ) );
-	// Add template folding if in supported namespace.
-	if ( shouldUseFolding && ( config.templateFolding || config.templateFolding === undefined ) ) {
-		langExtension.push( templateFoldingExtension );
+	// Register MW-specific Extensions into CodeMirror preferences. Whether they are enabled
+	// or not is determined by the user's preferences and wiki configuration.
+	if ( handler ) {
+		mw.hook( 'ext.CodeMirror.ready' ).remove( handler );
 	}
 
-	// Bundle the bidi isolation extension, as it's coded specifically for MediaWiki.
-	// This is behind a config option for performance reasons (we only use it on RTL pages).
-	if ( config.bidiIsolation ) {
-		langExtension.push( bidiIsolationExtension );
-	}
+	handler = ( cm ) => {
+		// T380840
+		if ( !cm.view ) {
+			return;
+		}
+
+		// Register MW-specific keymaps.
+		mwKeymap( cm );
+
+		if ( config.codeFolding !== false ) {
+			cm.preferences.registerExtension( 'codeFolding', codeFoldingExtension, cm.view );
+		}
+		if ( config.autocomplete !== false ) {
+			cm.preferences.registerExtension( 'autocomplete', autocompleteExtension, cm.view );
+		}
+		if ( config.openLinks !== false ) {
+			cm.preferences.registerExtension( 'openLinks', openLinksExtension, cm.view );
+		}
+		if ( config.bidiIsolation ) {
+			cm.preferences.registerExtension( 'bidiIsolation', bidiIsolationExtension, cm.view );
+		}
+	};
+	mw.hook( 'ext.CodeMirror.ready' ).add( handler );
 
 	return new LanguageSupport( lang, langExtension );
 };

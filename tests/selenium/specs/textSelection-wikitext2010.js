@@ -15,9 +15,8 @@ describe( 'CodeMirror textSelection for the wikitext 2010 editor', () => {
 		await LoginPage.loginAdmin();
 		await FixtureContent.createFixturePage( title );
 		await UserPreferences.enableWikitext2010EditorWithCodeMirror();
-		await EditPage.openForEditing( title, true );
-		await EditPage.wikiEditorToolbar.waitForDisplayed();
-		await EditPage.clickText();
+		await EditPage.openForEditing( title );
+		await EditPage.codeMirrorButton.waitForDisplayed();
 	} );
 
 	// Content is "[]{{template}}"
@@ -27,6 +26,16 @@ describe( 'CodeMirror textSelection for the wikitext 2010 editor', () => {
 			await browser.execute( () => $( '.cm-editor' ).textSelection( 'getContents' ) ),
 			'foobar'
 		);
+	} );
+
+	it( 'has usage of .val() routed to CodeMirror', async () => {
+		await browser.execute( () => $( '#wpTextbox1' ).val( 'baz' ) );
+		assert.strictEqual(
+			await browser.execute( () => $( '.cm-editor' ).textSelection( 'getContents' ) ),
+			'baz'
+		);
+		// Change back to "foobar" for subsequent tests.
+		await browser.execute( () => $( '#wpTextbox1' ).val( 'foobar' ) );
 	} );
 
 	// Content is now "foobar"
@@ -97,6 +106,29 @@ describe( 'CodeMirror textSelection for the wikitext 2010 editor', () => {
 		);
 	} );
 
+	it( "applies 'pre'/'post' to each line when 'splitlines' is used with encapsulateSelection", async () => {
+		await browser.execute( () => {
+			const testStr = 'foo\nbar\nbaz';
+			$( '.cm-editor' ).textSelection( 'setContents', testStr )
+				.textSelection( 'encapsulateSelection', {
+					selectionStart: 0,
+					selectionEnd: testStr.length,
+					pre: '<div>',
+					post: '</div>',
+					splitlines: true
+				} );
+		} );
+		const expected = '<div>foo</div>\n<div>bar</div>\n<div>baz</div>';
+		assert.strictEqual(
+			await browser.execute( () => $( '.cm-editor' ).textSelection( 'getContents' ) ),
+			expected
+		);
+		assert.strictEqual(
+			await browser.execute( () => $( '.cm-editor' ).textSelection( 'getSelection' ) ),
+			expected
+		);
+	} );
+
 	it( 'scrolls to the correct place when using scrollToCaretPosition', async () => {
 		await browser.execute( () => {
 			const $cmEditor = $( '.cm-editor' );
@@ -116,8 +148,8 @@ describe( 'CodeMirror textSelection for the wikitext 2010 editor', () => {
 
 	// Content is now "foobar\n" repeated 50 times.
 	it( 'retains the contents after turning CodeMirror off', async () => {
-		await EditPage.legacyCodeMirrorButton.click();
-		await EditPage.legacyTextInput.waitForDisplayed();
-		assert.match( await EditPage.legacyTextInput.getValue(), /foobar/ );
+		await EditPage.codeMirrorButton.click();
+		await EditPage.textInput.waitForDisplayed();
+		assert.match( await EditPage.textInput.getValue(), /foobar/ );
 	} );
 } );

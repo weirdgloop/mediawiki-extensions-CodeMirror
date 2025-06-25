@@ -1,4 +1,5 @@
 @import 'mediawiki.skin.variables.less';
+@import './codemirror.mixins.less';
 
 @error-color: @color-destructive;
 @link-color: @color-progressive;
@@ -11,6 +12,7 @@
 @wikitext-formatting-color: @color-progressive--focus;
 @wikitext-formatting-color-dark: @color-progressive--hover;
 @xml-tag-color: @color-content-added;
+@xml-tag-attribute-color: var(--color-destructive--visited--active);
 @template-background-color: #a11;
 @ext-background-color: #eee;
 @link-background-color: #219;
@@ -23,27 +25,13 @@
 	background-color: average( average( @template-shade, @ext-shade ), @link-shade );
 }
 
-.darkmode( @prop, @value ) {
-	@media screen {
-		html.skin-theme-clientpref-night & {
-			@{prop}: @value;
-		}
-	}
-
-	@media screen and ( prefers-color-scheme: dark ) {
-		html.skin-theme-clientpref-os & {
-			@{prop}: @value;
-		}
-	}
-}
-
 .wikitext-formatting-color {
 	color: @wikitext-formatting-color;
 	.darkmode( color, @wikitext-formatting-color-dark );
 }
 
 .cm-mw-pagename {
-	text-decoration: underline;
+	text-decoration: @text-decoration-underline;
 }
 
 .cm-mw-skipformatting {
@@ -58,7 +46,8 @@
 .cm-mw-doubleUnderscore,
 .cm-mw-double-underscore,
 .cm-mw-signature,
-.cm-mw-hr {
+.cm-mw-hr,
+.cm-mw-redirect {
 	.wikitext-formatting-color();
 	font-weight: bold;
 	background-color: @background-color-disabled-subtle;
@@ -73,8 +62,7 @@
 	color: @color-subtle;
 	font-weight: normal;
 }
-.cm-mw-apostrophes-bold,
-.cm-mw-apostrophes-italic {
+.cm-mw-apostrophes {
 	.wikitext-formatting-color();
 }
 .cm-mw-strong {
@@ -113,18 +101,7 @@ span.cm-mw-section-6 ~ * {
 }
 
 .cm-mw-template {
-	color: @template-color;
 	font-weight: normal;
-
-	html.skin-theme-clientpref-night & {
-		color: @template-color-dark;
-	}
-
-	@media ( prefers-color-scheme: dark ) {
-		html.skin-theme-clientpref-os & {
-			color: @template-color-dark;
-		}
-	}
 }
 
 // TODO: deprecate/remove after CM6 upgrade
@@ -179,6 +156,13 @@ pre.CodeMirror-line-like.cm-mw-exttag {
 .cm-mw-htmltag-bracket,
 .cm-mw-htmltag-attribute {
 	color: @xml-tag-color;
+	font-weight: normal;
+}
+.cm-mw-exttag-attribute-value,
+.cm-mw-htmltag-attribute-value,
+.cm-mw-table-definition-value,
+.cm-mw-image-parameter {
+	color: @xml-tag-attribute-color;
 	font-weight: normal;
 }
 
@@ -315,4 +299,30 @@ pre.CodeMirror-line-like.cm-mw-tag-nowiki {
 
 .cm-mw-em {
 	font-style: italic;
+}
+
+.cm-mw-open-links[ data-open-links ] {
+	.cm-mw-template-name:hover,
+	.cm-mw-link-pagename:hover,
+	/* Visually combine external links and protocols during Mod + click */
+	.cm-mw-extlink-protocol:hover,
+	.cm-mw-extlink:hover,
+	.cm-mw-extlink-protocol:hover + .cm-mw-extlink,
+	.cm-mw-free-extlink-protocol:hover,
+	.cm-mw-free-extlink:hover,
+	.cm-mw-free-extlink-protocol:hover + .cm-mw-free-extlink,
+	.cm-mw-parserfunction.cm-mw-pagename:hover,
+	.cm-mw-ext-templatestyles.cm-mw-pagename:hover {
+		color: @color-progressive--hover;
+		cursor: @cursor-base--hover;
+		text-decoration: @text-decoration-underline;
+	}
+
+	// Separate rule in case :has is not selected.
+	.cm-mw-extlink-protocol:has( + .cm-mw-extlink:hover ),
+	.cm-mw-free-extlink-protocol:has( + .cm-mw-free-extlink:hover ) {
+		color: @color-progressive--hover;
+		cursor: @cursor-base--hover;
+		text-decoration: @text-decoration-underline;
+	}
 }
