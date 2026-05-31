@@ -1,4 +1,5 @@
 <?php
+declare( strict_types = 1 );
 
 namespace MediaWiki\Extension\CodeMirror\Tests;
 
@@ -40,6 +41,7 @@ class HooksTest extends MediaWikiIntegrationTestCase {
 			'module' => null,
 			'gadget' => null,
 			'contentModel' => CONTENT_MODEL_WIKITEXT,
+			'contentModelAfterHook' => null,
 			Hooks::OPTION_USE_CODEMIRROR => true,
 			Hooks::OPTION_USE_CODEMIRROR_CODE => true,
 			'isRTL' => false,
@@ -106,6 +108,14 @@ class HooksTest extends MediaWikiIntegrationTestCase {
 				}
 			} );
 
+		if ( $conds['contentModelAfterHook'] ) {
+			$this->setTemporaryHook( 'CodeMirrorGetMode', static function (
+				Title $title, ?string &$mode, string $model,
+			) use ( $conds ) {
+				$mode = $conds['contentModelAfterHook'];
+			} );
+		}
+
 		$hooks = new Hooks(
 			$this->getServiceContainer()->getMainConfig(),
 			$this->getServiceContainer()->getHookContainer(),
@@ -134,7 +144,7 @@ class HooksTest extends MediaWikiIntegrationTestCase {
 				'onEditPage__showEditForm_initial';
 			$hooks->{$method}( $this->createMock( EditPage::class ), $out );
 			if ( $expectedModules ) {
-				$this->assertEquals( '#wpTextbox1', $jsConfigVars['cmTextarea'] );
+				$this->assertEquals( '#wpTextbox1', $jsConfigVars['cmTextarea'] ?? null );
 			}
 		}
 		$this->assertArrayEquals( $expectedModules, $modulesLoaded );
@@ -255,6 +265,29 @@ class HooksTest extends MediaWikiIntegrationTestCase {
 		yield 'CM6, page language en with Pig Latin variant disabled' => [
 			[ 'pageLang' => 'en', 'usePigLatinVariant' => false ],
 			[ ...$cm6DefaultModules, 'ext.CodeMirror.mode.mediawiki' ]
+		];
+		yield 'preference false, WikiEditor, contentModel JSON' => [
+			[
+				Hooks::OPTION_USE_WIKIEDITOR => true,
+				Hooks::OPTION_USE_CODEMIRROR => false,
+				'contentModel' => CONTENT_MODEL_JSON,
+				'allowedModes' => [ Hooks::MODE_JSON => true ],
+			],
+			[ ...$cmDefaultModules, 'ext.CodeMirror.modes',
+				'ext.CodeMirror.styles', 'ext.CodeMirror.WikiEditor' ],
+			'json'
+		];
+		yield 'preference false, WikiEditor, contentModel Chart.JsonConifg' => [
+			[
+				Hooks::OPTION_USE_WIKIEDITOR => true,
+				Hooks::OPTION_USE_CODEMIRROR => false,
+				'contentModel' => 'Chart.JsonConfig',
+				'contentModelAfterHook' => CONTENT_MODEL_JSON,
+				'allowedModes' => [ Hooks::MODE_JSON => true ],
+			],
+			[ ...$cmDefaultModules, 'ext.CodeMirror.modes',
+				'ext.CodeMirror.styles', 'ext.CodeMirror.WikiEditor' ],
+			'json'
 		];
 	}
 
