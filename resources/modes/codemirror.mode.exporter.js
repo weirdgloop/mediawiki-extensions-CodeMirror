@@ -38,6 +38,10 @@ module.exports = {};
  * @return {CodeMirrorCss|LanguageSupport} LanguageSupport for the CSS mode.
  */
 /**
+ * @method less
+ * @return {CodeMirrorLess|LanguageSupport} LanguageSupport for the LESS mode.
+ */
+/**
  * @method lua
  * @return {CodeMirrorLua|LanguageSupport} LanguageSupport for the Lua mode.
  */
@@ -51,7 +55,7 @@ module.exports = {};
  */
 /* eslint-enable jsdoc/no-undefined-types */
 
-for ( const mode of [ 'javascript', 'json', 'jsonc', 'css', 'lua', 'vue', 'html' ] ) {
+for ( const mode of [ 'javascript', 'json', 'jsonc', 'css', 'less', 'lua', 'vue', 'html' ] ) {
 	module.exports[ mode ] = function () {
 		// eslint-disable-next-line security/detect-non-literal-require
 		const ModeClass = require( `./codemirror.${ mode }.js` );

@@ -47,6 +47,7 @@ class Hooks implements
 	public const MODE_JSON = 'json';
 	public const MODE_JSONC = 'jsonc';
 	public const MODE_LUA = 'lua';
+	public const MODE_LESS = 'less';
 	public const MODE_VUE = 'vue';
 	public const SUPPORTED_MODES = [
 		self::MODE_MEDIAWIKI,
@@ -56,6 +57,7 @@ class Hooks implements
 		self::MODE_JSONC,
 		self::MODE_VUE,
 		self::MODE_LUA,
+		self::MODE_LESS,
 	];
 
 	public const OPTION_USE_CODEMIRROR = 'usecodemirror';
