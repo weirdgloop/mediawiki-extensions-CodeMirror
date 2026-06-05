@@ -24,17 +24,17 @@ namespace MediaWiki\Extension\CodeMirror;
 
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Registration\ExtensionRegistry;
-use MediaWiki\ResourceLoader\Context;
+use MediaWiki\ResourceLoader as RL;
 
 /**
  * ResourceLoader callback for ext.CodeMirror.data
  */
 class DataScript {
 	/**
-	 * @param Context $context
+	 * @param RL\Context $context
 	 * @return string
 	 */
-	public static function makeScript( Context $context ) {
+	public static function makeScript( RL\Context $context ) {
 		return 'mw.config.set('
 			. $context->encodeJson( [ 'extCodeMirrorConfig' => self::getFrontendConfiguration() ] )
 			. ');';
