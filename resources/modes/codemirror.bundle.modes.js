@@ -8,6 +8,7 @@ export * from '@codemirror/lang-javascript';
 export * from '@codemirror/lang-css';
 export * from '@codemirror/lang-json';
 export * from '@codemirror/lang-html';
+export * from '@codemirror/lang-less';
 export * from '@codemirror/lang-vue';
 export * from '@codemirror/legacy-modes/mode/lua';
 export * from '@lezer/common';

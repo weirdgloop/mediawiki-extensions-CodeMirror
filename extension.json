@@ -353,6 +353,7 @@
 				"modes/codemirror.json.js",
 				"modes/json/codemirror.json.lint.js",
 				"modes/codemirror.css.js",
+				"modes/codemirror.less.js",
 				"modes/codemirror.lua.js",
 				"modes/codemirror.vue.js",
 				"codemirror.validator.js",
