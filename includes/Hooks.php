@@ -18,7 +18,7 @@ use MediaWiki\MainConfigNames;
 use MediaWiki\Output\OutputPage;
 use MediaWiki\Preferences\Hook\GetPreferencesHook;
 use MediaWiki\Registration\ExtensionRegistry;
-use MediaWiki\SpecialPage\Hook\SpecialPageBeforeExecuteHook;
+use MediaWiki\SpecialPage\Hook\SpecialPageAfterExecuteHook;
 use MediaWiki\SpecialPage\SpecialPage;
 use MediaWiki\Specials\SpecialUpload;
 use MediaWiki\Title\Title;
@@ -29,7 +29,7 @@ class Hooks implements
 	EditPage__showEditForm_initialHook,
 	EditPage__showReadOnlyForm_initialHook,
 	UploadForm_initialHook,
-	SpecialPageBeforeExecuteHook,
+	SpecialPageAfterExecuteHook,
 	GetPreferencesHook
 {
 
@@ -136,7 +136,7 @@ class Hooks implements
 		?ExtensionRegistry $extensionRegistry = null,
 		bool $supportWikiEditor = true
 	): bool {
-		$mode = $this->getMode( $out->getTitle() );
+		$mode = $this->getMode( $out->getSkin()->getRelevantTitle() );
 		if ( $mode === null ) {
 			return false;
 		}
@@ -206,7 +206,7 @@ class Hooks implements
 		bool $supportWikiEditor = true,
 		array $textareas = [ '#wpTextbox1' ]
 	): void {
-		$mode = $this->getMode( $out->getTitle() );
+		$mode = $this->getMode( $out->getSkin()->getRelevantTitle() );
 		if ( $mode === null ) {
 			return;
 		}
@@ -249,7 +249,7 @@ class Hooks implements
 		$mainTextarea = $textareas[0];
 		$childTextareas = array_slice( $textareas, 1 );
 
-		$lang = $out->getTitle()->getPageLanguage();
+		$lang = $out->getSkin()->getRelevantTitle()->getPageLanguage();
 		$code = mb_strtolower( $lang->getCode() );
 		$variants = [];
 		if (
@@ -265,6 +265,7 @@ class Hooks implements
 		}
 		$out->addJsConfigVars( [
 			'cmRLModules' => $modules,
+			// TODO: Add .ext-codemirror-readonly to the <body> here in Hooks and rely on the style module
 			'cmReadOnly' => $this->readOnly,
 			'cmLanguageVariants' => $variants,
 			'cmMode' => $mode,
@@ -287,7 +288,7 @@ class Hooks implements
 
 		// Add a class to expose Realtime Preview in WikiEditor, if applicable for the current content model.
 		$rtpContentModels = ExtensionRegistry::getInstance()->getAttribute( 'WikiEditorRealtimePreviewContentModels' );
-		$contentModel = $out->getTitle()->getContentModel();
+		$contentModel = $out->getTitle()?->getContentModel();
 		if ( $rtpContentModels && in_array( $contentModel, $rtpContentModels, true ) ) {
 			$out->addBodyClasses( 'cm-mw-wikieditor-realtime-preview' );
 		}
@@ -323,28 +324,30 @@ class Hooks implements
 	}
 
 	/**
-	 * @see https://www.mediawiki.org/wiki/Manual:Hooks/SpecialPageBeforeExecute
+	 * @see https://www.mediawiki.org/wiki/Manual:Hooks/SpecialPageAfterExecute
 	 *
 	 * @param SpecialPage $special
 	 * @param string $subPage
 	 */
-	public function onSpecialPageBeforeExecute( $special, $subPage ): void {
+	public function onSpecialPageAfterExecute( $special, $subPage ): void {
 		$output = $special->getOutput();
-		if (
-			$special->getName() === 'ExpandTemplates' &&
-			$this->shouldLoadCodeMirror( $output, null, false )
-		) {
+		if ( !$this->shouldLoadCodeMirror( $output, null, false ) ) {
+			return;
+		}
+
+		$specialName = $special->getName();
+		if ( $specialName === 'ExpandTemplates' ) {
 			$this->loadInitModules( $output, false, [ '[name=wpInput]', '#output' ] );
+			return;
+		} elseif ( $specialName === 'Undelete' && $special->getRequest()->getRawVal( 'timestamp' ) ) {
+			$this->loadInitModules( $output, false, [ '.mw-undelete-textarea' ] );
 			return;
 		}
 
 		// Allow extensions to load CodeMirror on other special pages.
 		$textareas = [];
 		$this->hookRunner->onCodeMirrorSpecialPage( $special, $textareas );
-		if (
-			$textareas &&
-			$this->shouldLoadCodeMirror( $output, null, false )
-		) {
+		if ( $textareas ) {
 			$this->loadInitModules( $output, false, $textareas );
 		}
 	}
