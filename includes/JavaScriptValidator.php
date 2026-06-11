@@ -3,7 +3,7 @@
 namespace MediaWiki\Extension\CodeMirror;
 
 use MediaWiki\Context\RequestContext;
-use MediaWiki\Language\MessageLocalizer;
+use MessageLocalizer;
 use MediaWiki\Linker\LinkTarget;
 use MediaWiki\ResourceLoader as RL;
 use MediaWiki\Skin\SkinFactory;
