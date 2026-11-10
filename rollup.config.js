@@ -47,6 +47,7 @@ module.exports = [
 					'@codemirror/lang-css',
 					'@codemirror/lang-html',
 					'@codemirror/lang-javascript',
+					'@codemirror/lang-less',
 					'@codemirror/lang-vue',
 					'@codemirror/legacy-modes',
 					'@lezer/common',

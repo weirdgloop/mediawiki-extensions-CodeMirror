@@ -9,6 +9,7 @@ export * from '@codemirror/lang-css';
 export { colorPicker } from '@bhsd/codemirror-css-color-picker';
 export * from '@bhsd/lezer-json';
 export * from '@codemirror/lang-html';
+export * from '@codemirror/lang-less';
 export * from '@codemirror/lang-vue';
 export * from '@codemirror/legacy-modes/mode/lua';
 export * from '@lezer/common';
